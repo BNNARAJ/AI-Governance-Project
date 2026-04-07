@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+google-generativeai
+chromadb
+pypdf
+python-multipart
+pydantic
+requests
+python-dotenv
+langchain-google-genai
+langchain-community
+langchain
+langchain-text-splitters
+reportlab

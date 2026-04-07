@@ -1,0 +1,37 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# Virtual environments
+backend/venv/
+venv/
+.env
+backend/.env
+
+# Local database files
+*.sqlite3
+**/chroma_db/
+
+# Logs and reports
+*.log
+htmlcov/
+.coverage
+
+# IDE / editor files
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Misc
+dist/
+build/
+*.egg-info/

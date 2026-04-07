@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Governance Agent | Dashboard</title>
+    <meta name="description" content="Generalized AI Governance Agent — audit any AI model for bias, fairness, and regulatory compliance across any industry.">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+    <!-- Background Animation -->
+    <div class="bg-blobs">
+        <div class="blob b1"></div>
+        <div class="blob b2"></div>
+        <div class="blob b3"></div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Mobile Menu Toggle -->
+    <button class="mobile-toggle" id="mobile-toggle">
+        <i data-lucide="menu"></i>
+    </button>
+
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen" class="login-screen">
+        <div class="login-card glass">
+            <div class="login-logo">
+                <i data-lucide="shield-check"></i>
+                <h1>AI Governance Agent</h1>
+                <p>Sign in to access the governance platform</p>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="login-user">Username</label>
+                    <input type="text" id="login-user" placeholder="admin / compliance / developer" required>
+                </div>
+                <div class="form-group">
+                    <label for="login-pass">Password</label>
+                    <input type="password" id="login-pass" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn-primary full-width">Sign In</button>
+                <p id="login-error" class="error-msg"></p>
+            </form>
+            <div class="login-hint">
+                <p><strong>Demo Accounts:</strong></p>
+                <p>admin / admin123 &nbsp;|&nbsp; compliance / compliance123 &nbsp;|&nbsp; developer / developer123</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN APP (hidden until login) -->
+    <div id="app" class="app hidden">
+        <aside class="sidebar" id="sidebar">
+            <div class="logo">
+                <i data-lucide="shield-check"></i>
+                <span>Governance</span>
+            </div>
+            <nav id="nav-menu">
+                <!-- Populated dynamically based on role -->
+            </nav>
+            <div class="sidebar-footer">
+                <div class="user-badge" id="user-badge">
+                    <i data-lucide="user"></i>
+                    <div>
+                        <span id="user-name">User</span>
+                        <small id="user-role">role</small>
+                    </div>
+                </div>
+                <button class="btn-ghost" id="logout-btn"><i data-lucide="log-out"></i> Logout</button>
+            </div>
+        </aside>
+
+        <main class="content">
+            <!-- DASHBOARD VIEW -->
+            <section id="view-dashboard" class="view">
+                <div class="view-header">
+                    <h1>Dashboard</h1>
+                    <div class="status-pill online" id="status-pill"><span class="dot"></span> API Online</div>
+                </div>
+                <div class="stats-grid" id="stats-grid">
+                    <div class="stat-card glass">
+                        <div class="stat-icon"><i data-lucide="files"></i></div>
+                        <div class="stat-body"><p class="stat-label">Regulations Indexed</p><h2 id="stat-indexed">0</h2></div>
+                    </div>
+                    <div class="stat-card glass">
+                        <div class="stat-icon accent"><i data-lucide="activity"></i></div>
+                        <div class="stat-body"><p class="stat-label">Audits Run</p><h2 id="stat-audits">0</h2></div>
+                    </div>
+                    <div class="stat-card glass highlight">
+                        <div class="stat-icon success"><i data-lucide="award"></i></div>
+                        <div class="stat-body"><p class="stat-label">Avg Fairness</p><h2 id="stat-fairness">--</h2></div>
+                    </div>
+                    <div class="stat-card glass" id="stat-violations-card">
+                        <div class="stat-icon danger"><i data-lucide="alert-triangle"></i></div>
+                        <div class="stat-body"><p class="stat-label">Policy Violations</p><h2 id="stat-violations">0</h2></div>
+                    </div>
+                </div>
+
+                <div class="panel glass">
+                    <h2>Quick Start</h2>
+                    <p>Audit any AI model for bias and regulatory compliance. Upload your regulations, configure variance factors, and launch the governance audit.</p>
+                    <div class="btn-group">
+                        <button class="btn-primary" onclick="switchView('upload')"><i data-lucide="file-up"></i> Upload Regulations</button>
+                        <button class="btn-secondary" onclick="switchView('config')"><i data-lucide="settings"></i> Configure Audit</button>
+                    </div>
+                </div>
+
+                <!-- Audit History -->
+                <div class="panel glass" id="history-panel">
+                    <h2><i data-lucide="clock"></i> Recent Audit History</h2>
+                    <div id="audit-history-list"><p class="muted">No audits yet.</p></div>
+                </div>
+            </section>
+
+            <!-- UPLOAD VIEW -->
+            <section id="view-upload" class="view hidden">
+                <div class="view-header"><h1>Regulatory Knowledge Base</h1></div>
+                <div class="panel glass">
+                    <p>Upload PDF documents containing regulations, standards, or policies from any domain.</p>
+                    <div class="dropzone" id="dropzone">
+                        <i data-lucide="upload-cloud"></i>
+                        <p>Drag & drop PDFs here or <span class="link">browse</span></p>
+                        <input type="file" id="file-input" multiple accept=".pdf" hidden>
+                    </div>
+                    <ul id="file-list" class="file-list"></ul>
+                    <button id="upload-btn" class="btn-primary" disabled><i data-lucide="database"></i> Index Regulations</button>
+                    <div id="upload-status"></div>
+                </div>
+            </section>
+
+            <!-- AUDIT CONFIG VIEW -->
+            <section id="view-config" class="view hidden">
+                <div class="view-header"><h1>Audit Configuration</h1></div>
+                <div class="panel glass">
+                    <form id="audit-form">
+                        <div class="form-group">
+                            <label>Model Description</label>
+                            <textarea id="model-desc" rows="4" placeholder="Describe the AI model's purpose (e.g. 'Loan eligibility predictor for rural borrowers', 'Crop disease classifier using satellite imagery')"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Variance Factors to Test</label>
+                            <div class="tags-input glass" id="tags-container">
+                                <input type="text" id="tag-input" placeholder="Type and press Enter (e.g. 'Crop Type', 'Gender')">
+                            </div>
+                            <div class="preset-tags">
+                                <span class="preset" data-tag="Gender">+ Gender</span>
+                                <span class="preset" data-tag="Age">+ Age</span>
+                                <span class="preset" data-tag="Location">+ Location</span>
+                                <span class="preset" data-tag="Ethnicity">+ Ethnicity</span>
+                                <span class="preset" data-tag="Income">+ Income</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Model Connection</label>
+                            <div class="radio-group">
+                                <label class="radio-card glass">
+                                    <input type="radio" name="conn" value="api" checked>
+                                    <div><i data-lucide="globe"></i><span>API Endpoint</span></div>
+                                </label>
+                                <label class="radio-card glass">
+                                    <input type="radio" name="conn" value="upload">
+                                    <div><i data-lucide="hard-drive"></i><span>Upload Model</span></div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="api-fields">
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label>API URL</label>
+                                    <input type="url" id="api-url" placeholder="https://api.yourmodel.com/predict">
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label>API Key</label>
+                                    <input type="password" id="api-key" placeholder="Bearer sk-...">
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn-primary pulse"><i data-lucide="play"></i> Launch Governance Audit</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- RESULTS VIEW -->
+            <section id="view-results" class="view hidden">
+                <div class="view-header"><h1>Audit Results</h1></div>
+
+                <div id="audit-loading" class="loader-panel glass hidden">
+                    <div class="spinner"></div>
+                    <p>Running Governance Audit...</p>
+                    <p class="muted">Generating adversarial test cases and grading responses</p>
+                    <div class="audit-progress" id="audit-progress">
+                        <div class="progress-step" id="step-rag">
+                            <i data-lucide="database"></i>
+                            <span>Retrieving regulatory context...</span>
+                        </div>
+                        <div class="progress-step" id="step-gen">
+                            <i data-lucide="sparkles"></i>
+                            <span>Generating adversarial test cases...</span>
+                        </div>
+                        <div class="progress-step" id="step-exec">
+                            <i data-lucide="play-circle"></i>
+                            <span>Executing tests against target model...</span>
+                        </div>
+                        <div class="progress-step" id="step-grade">
+                            <i data-lucide="check-circle"></i>
+                            <span>Grading responses with LLM critic...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="audit-summary" class="hidden"></div>
+                <div id="audit-results-list"></div>
+            </section>
+
+            <!-- ADMIN VIEW (Admin only) -->
+            <section id="view-admin" class="view hidden">
+                <div class="view-header"><h1>Administration</h1></div>
+                
+                <div class="admin-grid">
+                    <div class="panel glass">
+                        <h2><i data-lucide="users"></i> User Management (RBAC)</h2>
+                        <div id="user-list"></div>
+                        <hr>
+                        <h3>Create New User</h3>
+                        <form id="create-user-form">
+                            <div class="form-row">
+                                <input type="text" id="new-username" placeholder="Username" required>
+                                <input type="text" id="new-fullname" placeholder="Full Name" required>
+                            </div>
+                            <div class="form-row">
+                                <input type="password" id="new-password" placeholder="Password" required>
+                                <select id="new-role">
+                                    <option value="admin">Admin</option>
+                                    <option value="compliance_officer">Compliance Officer</option>
+                                    <option value="ai_developer">AI Developer</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn-primary"><i data-lucide="user-plus"></i> Create User</button>
+                        </form>
+                    </div>
+
+                    <div class="panel glass">
+                        <h2><i data-lucide="clipboard-check"></i> Compliance Policies</h2>
+                        <div id="policy-list"></div>
+                        <hr>
+                        <h3>Add New Policy</h3>
+                        <form id="create-policy-form">
+                            <div class="form-group">
+                                <input type="text" id="policy-name" placeholder="Policy Name" required>
+                            </div>
+                            <div class="form-group">
+                                <textarea id="policy-desc" rows="2" placeholder="Policy Description"></textarea>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Min Fairness</label>
+                                    <input type="number" id="policy-fairness" value="7" min="0" max="10" step="0.5">
+                                </div>
+                                <div class="form-group">
+                                    <label>Min Compliance</label>
+                                    <input type="number" id="policy-compliance" value="7" min="0" max="10" step="0.5">
+                                </div>
+                                <div class="form-group">
+                                    <label>Min Accuracy</label>
+                                    <input type="number" id="policy-accuracy" value="7" min="0" max="10" step="0.5">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn-primary"><i data-lucide="plus"></i> Add Policy</button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
