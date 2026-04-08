@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupUpload();
     setupTags();
     setupAuditForm();
+    setupModelUpload();
     setupLogout();
     setupMobileMenu();
     checkAPIStatus();
@@ -336,12 +337,17 @@ function setupAuditForm() {
         if (!desc) { showToast('Please describe the model.', 'warning'); return; }
         if (tags.length === 0) { showToast('Please add at least one variance factor.', 'warning'); return; }
 
+        const manualFeaturesStr = document.getElementById('manual-features').value;
+        const manualFeaturesList = manualFeaturesStr ? manualFeaturesStr.split(',').map(f => f.trim()).filter(f => f) : null;
+
         const config = {
             model_description: desc,
             variance_factors: tags,
             connection_type: connType,
             api_url: document.getElementById('api-url').value || null,
-            api_key: document.getElementById('api-key').value || null
+            api_key: document.getElementById('api-key').value || null,
+            local_file_path: uploadedModelName,
+            custom_feature_names: manualFeaturesList
         };
 
         // Step 1: Configure
@@ -368,8 +374,18 @@ function setupAuditForm() {
             loading.classList.add('hidden');
 
             if (data.error) {
-                document.getElementById('audit-results-list').innerHTML = `<div class="panel glass"><p style="color:var(--danger)">Error: ${escapeHtml(data.error)}</p><pre style="font-size:0.8rem;color:var(--text-muted);overflow-x:auto">${escapeHtml(data.raw || '')}</pre></div>`;
-                showToast('Audit encountered an error.', 'error');
+                loading.classList.add('hidden');
+                document.getElementById('audit-results-list').innerHTML = `
+                    <div class="panel glass">
+                        <p style="color:var(--danger); font-weight: 600;">Error: ${escapeHtml(data.error)}</p>
+                        <p style="font-size: 0.9rem; margin-top: 0.5rem;">${escapeHtml(data.message || 'No additional details provided.')}</p>
+                        <details style="margin-top: 1rem;">
+                            <summary style="font-size: 0.75rem; color: var(--text-muted); cursor: pointer;">View Technical Traceback</summary>
+                            <pre style="font-size:0.75rem; color:var(--text-muted); overflow-x:auto; margin-top: 0.5rem; background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px;">${escapeHtml(data.traceback || data.raw || 'No traceback available.')}</pre>
+                        </details>
+                    </div>
+                `;
+                showToast('Audit failed. See results for details.', 'error');
                 return;
             }
 
@@ -381,6 +397,63 @@ function setupAuditForm() {
             showToast(`Audit failed: ${err.message}`, 'error');
         }
     });
+}
+
+// ========== MODEL UPLOAD & INSPECTION ==========
+let uploadedModelName = null;
+
+function setupModelUpload() {
+    const section = document.getElementById('upload-model-section');
+    const apiFields = document.getElementById('api-fields');
+    const radios = document.querySelectorAll('input[name="conn"]');
+    const dropzone = document.getElementById('model-dropzone');
+    const fileInput = document.getElementById('model-file-input');
+
+    radios.forEach(r => {
+        r.addEventListener('change', () => {
+            if (r.value === 'upload') {
+                section.classList.remove('hidden');
+                apiFields.classList.add('hidden');
+            } else {
+                section.classList.add('hidden');
+                apiFields.classList.remove('hidden');
+            }
+        });
+    });
+
+    if (dropzone) {
+        dropzone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', async (e) => {
+            if (e.target.files.length === 0) return;
+            const file = e.target.files[0];
+            
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                showToast('Uploading model...', 'info');
+                const res = await fetch(`${API}/upload-model`, { method: 'POST', body: formData });
+                const data = await res.json();
+                uploadedModelName = data.filename;
+                
+                // Inspect
+                const info = await fetch(`${API}/inspect-model/${uploadedModelName}`).then(r => r.json());
+                
+                // Show info
+                document.getElementById('model-inspect-area').classList.remove('hidden');
+                const list = document.getElementById('model-features-list');
+                if (info.feature_names && info.feature_names.length > 0) {
+                    list.innerHTML = info.feature_names.map(f => `<span class="feature-pill">${escapeHtml(f)}</span>`).join('');
+                } else {
+                    list.innerHTML = `<span class="muted">No feature names found in model metadata.</span>`;
+                }
+                
+                showToast('Model uploaded and inspected!', 'success');
+            } catch (err) {
+                showToast('Model upload failed', 'error');
+            }
+        });
+    }
 }
 
 // ========== PROGRESS STEPS ANIMATION ==========

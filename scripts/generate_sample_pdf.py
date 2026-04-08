@@ -1,6 +1,11 @@
 """Generate a sample RBI Fair Lending Guidelines PDF for testing."""
+import os
 import sys
-sys.path.insert(0, r"c:\Users\bnnar\Desktop\AI Governance Project\backend\venv\Lib\site-packages")
+
+project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+venv_site_packages = os.path.join(project_dir, "backend", "venv", "Lib", "site-packages")
+if os.path.isdir(venv_site_packages):
+    sys.path.insert(0, venv_site_packages)
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
@@ -9,8 +14,12 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
 
+uploads_dir = os.path.join(project_dir, "uploads", "regulations")
+os.makedirs(uploads_dir, exist_ok=True)
+pdf_path = os.path.join(uploads_dir, "RBI_Fair_Lending_Guidelines_2025.pdf")
+
 doc = SimpleDocTemplate(
-    r"c:\Users\bnnar\Desktop\AI Governance Project\uploads\RBI_Fair_Lending_Guidelines_2025.pdf",
+    pdf_path,
     pagesize=A4,
     topMargin=2*cm, bottomMargin=2*cm,
     leftMargin=2.5*cm, rightMargin=2.5*cm,
@@ -125,7 +134,6 @@ story.append(Paragraph(
     ParagraphStyle("Footer", fontName="Helvetica-Oblique", fontSize=8, textColor=HexColor("#a0aec0"), alignment=TA_CENTER)
 ))
 
-import os
-os.makedirs(r"c:\Users\bnnar\Desktop\AI Governance Project\uploads", exist_ok=True)
 doc.build(story)
-print("✅ PDF generated: uploads/RBI_Fair_Lending_Guidelines_2025.pdf")
+print("PDF generated:", pdf_path)
+

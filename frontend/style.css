@@ -755,3 +755,39 @@ select { cursor: pointer; }
     .radio-group { flex-direction: column; }
     .form-row { flex-direction: column; gap: 0; }
 }
+
+/* --- New Model Audit Styles --- */
+.feature-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.feature-pill {
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--primary-light);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    padding: 0.25rem 0.75rem;
+    border-radius: 100px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.info-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.5rem;
+}
+
+.info-tag.success {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--accent);
+}

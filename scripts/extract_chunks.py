@@ -2,11 +2,14 @@ import chromadb
 import json
 import os
 
-path = r'c:\Users\bnnar\Desktop\AI Governance Project\backend\data\chroma_db'
-client = chromadb.PersistentClient(path=path)
+project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+db_path = os.path.join(project_dir, "backend", "data", "chroma_db")
+client = chromadb.PersistentClient(path=db_path)
 cols = client.list_collections()
 
-output_path = r'C:\Users\bnnar\.gemini\antigravity\brain\09b05dfd-c355-4842-a964-84b5b38d55dc\rag_chunks_view.md'
+docs_dir = os.path.join(project_dir, "docs")
+os.makedirs(docs_dir, exist_ok=True)
+output_path = os.path.join(docs_dir, "rag_chunks_view.md")
 
 with open(output_path, 'w', encoding='utf-8') as f:
     f.write('# ChromaDB Vector Store Data (RAG Chunks)\n\n')

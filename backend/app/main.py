@@ -13,6 +13,9 @@ load_dotenv()
 
 app = FastAPI(title="AI Governance Agent")
 
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+project_dir = os.path.dirname(backend_dir)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:8000", "*"],
@@ -26,6 +29,7 @@ from app.services.rag_service import rag_service
 from app.services.gemini_service import gemini_service
 from app.services.auth_service import auth_service, UserRole
 from app.services.report_service import generate_audit_report
+from app.services.model_service import model_service
 import requests
 from fastapi.responses import StreamingResponse
 
@@ -37,6 +41,7 @@ class AuditConfig(BaseModel):
     api_url: Optional[str] = None
     api_key: Optional[str] = None
     local_file_path: Optional[str] = None
+    custom_feature_names: Optional[List[str]] = None
 
 class LoginRequest(BaseModel):
     username: str
@@ -143,6 +148,23 @@ async def executive_dashboard(authorization: str = Header(None)):
         "recent_audits": audit_history[-5:] if audit_history else []
     }
 
+# --- Model Management Endpoints ---
+@app.post("/upload-model")
+async def upload_model(file: UploadFile = File(...)):
+    if not file.filename.endswith(".pkl"):
+        raise HTTPException(status_code=400, detail="Only .pkl files are supported")
+    
+    file_path = model_service.save_model(file.file, file.filename)
+    return {"message": "Model uploaded successfully", "filename": file.filename}
+
+@app.get("/inspect-model/{filename}")
+async def inspect_model(filename: str):
+    try:
+        info = model_service.inspect_model(filename)
+        return info
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
 # --- Core Endpoints ---
 @app.get("/")
 async def root():
@@ -150,7 +172,7 @@ async def root():
 
 @app.post("/upload-regulations")
 async def upload_regulations(files: List[UploadFile] = File(...)):
-    upload_dir = "uploads/regulations"
+    upload_dir = os.path.join(project_dir, "uploads", "regulations")
     os.makedirs(upload_dir, exist_ok=True)
     
     total_chunks = 0
@@ -176,15 +198,44 @@ async def run_audit():
         if not current_config:
             raise HTTPException(status_code=400, detail="Audit not configured. Call /configure-audit first.")
         
-        print("Starting audit: pulling RAG context...")
+        # Check for placeholder API key
+        gemini_key = os.getenv("GOOGLE_API_KEY")
+        if not gemini_key or "your_actual_gemini_api_key" in gemini_key:
+             return {
+                "error": "Configuration Error: Invalid Gemini API Key",
+                "message": "The system is currently using a placeholder key. Please update the GOOGLE_API_KEY in the backend/.env file with a valid key from Google AI Studio.",
+                "traceback": "Key check failed: .env contains default placeholder."
+             }
+        
         # 1. Retrieve knowledge from RAG system
         context = rag_service.query_regulations("compliance and fairness rules", n_results=5)
         
+        # 1.1 Inspect model if it's an uploaded model
+        feature_names = current_config.custom_feature_names
+        if current_config.connection_type == "upload" and current_config.local_file_path:
+            try:
+                info = model_service.inspect_model(current_config.local_file_path)
+                if not feature_names:
+                    feature_names = info.get("feature_names")
+                print(f"Model features identified: {len(feature_names) if feature_names else 0}")
+            except Exception as e:
+                print(f"Warning: Model inspection failed: {e}")
+
         print("Generating test cases via Gemini...")
         # 2. Generate adversarial test cases
-        test_cases_raw = await gemini_service.generate_test_cases(
-            context, current_config.model_description, current_config.variance_factors
-        )
+        try:
+            test_cases_raw = await gemini_service.generate_test_cases(
+                context, current_config.model_description, current_config.variance_factors,
+                feature_names=feature_names
+            )
+        except Exception as e:
+            print(f"Gemini LLM Error: {e}")
+            return {
+                "error": "LLM Service Error - Check API Key",
+                "message": str(e),
+                "raw": "",
+                "details": str(e),
+            }
         
         try:
             clean_json = test_cases_raw.strip().replace("```json", "").replace("```", "").strip()
@@ -217,7 +268,18 @@ async def run_audit():
                 except Exception as e:
                     target_response = f"API Error calling target model: {str(e)}"
             else:
-                target_response = "[Uploaded model execution — placeholder]"
+                # 3.1 Execute local model
+                try:
+                    features = test.get("features", {})
+                    # If features is missing but we have a text prompt, this is a gap
+                    # For local models, we MUST have a features dict
+                    if not features:
+                        target_response = "[Error: No numerical features generated for local model]"
+                    else:
+                        prediction = model_service.predict(current_config.local_file_path, features)
+                        target_response = f"Model Prediction: {prediction}"
+                except Exception as e:
+                    target_response = f"Local Model Error: {str(e)}"
 
             # 4. Grade the response
             print(f"Grading response {i+1}...")

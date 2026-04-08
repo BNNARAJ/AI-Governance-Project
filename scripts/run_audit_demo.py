@@ -1,6 +1,7 @@
 """Run the complete Compliance Officer user story via API."""
-import requests
 import json
+import os
+import requests
 import sys
 
 API = "http://localhost:8000"
@@ -9,7 +10,8 @@ API = "http://localhost:8000"
 print("=" * 60)
 print("STEP 1: Uploading RBI Fair Lending Guidelines PDF...")
 print("=" * 60)
-pdf_path = r"c:\Users\bnnar\Desktop\AI Governance Project\uploads\RBI_Fair_Lending_Guidelines_2025.pdf"
+project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+pdf_path = os.path.join(project_dir, "uploads", "regulations", "RBI_Fair_Lending_Guidelines_2025.pdf")
 with open(pdf_path, "rb") as f:
     resp = requests.post(
         f"{API}/upload-regulations",

@@ -12,3 +12,6 @@ langchain-community
 langchain
 langchain-text-splitters
 reportlab
+scikit-learn
+pandas
+joblib

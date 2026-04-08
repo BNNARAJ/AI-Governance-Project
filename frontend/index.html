@@ -171,6 +171,26 @@
                             </div>
                         </div>
 
+                        <div id="upload-model-section" class="hidden">
+                            <div class="form-group">
+                                <label>Upload .pkl Model</label>
+                                <div class="dropzone mini" id="model-dropzone">
+                                    <i data-lucide="package"></i>
+                                    <p>Click to upload model</p>
+                                    <input type="file" id="model-file-input" accept=".pkl" hidden>
+                                </div>
+                                <div id="model-inspect-area" class="hidden">
+                                    <div class="info-tag success" id="model-loaded-tag">✓ Model Loaded</div>
+                                    <div id="model-features-list" class="feature-pills"></div>
+                                    <div class="form-group" style="margin-top: 1rem">
+                                        <label style="font-size: 0.8rem">Manual Feature Names (Optional, CSV)</label>
+                                        <input type="text" id="manual-features" placeholder="income,age,gender,location">
+                                        <small class="muted">Only use if automatic detection fails or is incomplete.</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div id="api-fields">
                             <div class="form-row">
                                 <div class="form-group flex-1">
