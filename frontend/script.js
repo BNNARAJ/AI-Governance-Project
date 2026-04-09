@@ -401,6 +401,121 @@ function setupAuditForm() {
 
 // ========== MODEL UPLOAD & INSPECTION ==========
 let uploadedModelName = null;
+let currentModelProfile = null;
+
+async function loadModelProfile(modelId) {
+    const res = await fetch(`${API}/model-profile/${encodeURIComponent(modelId)}`);
+    if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || 'Failed to load model profile');
+    }
+    return res.json();
+}
+
+function renderModelProfile(profile) {
+    currentModelProfile = profile;
+    const tbody = document.querySelector('#profile-table tbody');
+    if (!tbody) return;
+
+    const rows = (profile.features || []).map(f => `
+        <tr data-name="${encodeURIComponent(f.name)}">
+            <td><input type="checkbox" class="profile-use" ${f.use ? 'checked' : ''}></td>
+            <td><span class="muted" style="font-size:0.9rem">${escapeHtml(f.name)}</span></td>
+            <td>
+                <select class="profile-dtype">
+                    ${['float','int','bool','category','string'].map(t => `<option value="${t}" ${f.dtype === t ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+            </td>
+            <td><input type="checkbox" class="profile-required" ${f.required ? 'checked' : ''}></td>
+            <td><input type="text" class="profile-default" value="${escapeHtml(f.default ?? '')}" placeholder="0"></td>
+            <td><input type="checkbox" class="profile-id" ${f.id_column ? 'checked' : ''}></td>
+        </tr>
+    `).join('');
+
+    tbody.innerHTML = rows || `<tr><td colspan="6" class="muted">No features detected for this model.</td></tr>`;
+    lucide.createIcons();
+}
+
+function readModelProfileFromUI(modelId) {
+    const tbody = document.querySelector('#profile-table tbody');
+    const rows = tbody ? Array.from(tbody.querySelectorAll('tr[data-name]')) : [];
+
+    const features = rows.map(r => {
+        const name = decodeURIComponent(r.getAttribute('data-name') || '');
+        const use = r.querySelector('.profile-use')?.checked ?? true;
+        const dtype = r.querySelector('.profile-dtype')?.value ?? 'float';
+        const required = r.querySelector('.profile-required')?.checked ?? false;
+        const id_column = r.querySelector('.profile-id')?.checked ?? false;
+        const defaultRaw = r.querySelector('.profile-default')?.value ?? '';
+
+        let def = defaultRaw === '' ? null : defaultRaw;
+        if (def !== null) {
+            if (dtype === 'float') def = Number(def);
+            if (dtype === 'int') def = parseInt(def, 10);
+            if (dtype === 'bool') def = String(def).toLowerCase() === 'true' || def === '1';
+        }
+
+        return { name, use, dtype, required, default: def, id_column };
+    });
+
+    return { version: 1, model_id: modelId, features };
+}
+
+async function refreshProfileUI() {
+    if (!uploadedModelName) {
+        showToast('Upload a model first.', 'warning');
+        return;
+    }
+    try {
+        const profile = await loadModelProfile(uploadedModelName);
+        renderModelProfile(profile);
+        showToast('Feature mapping loaded.', 'success');
+    } catch (e) {
+        showToast(`Profile load failed: ${e.message}`, 'error');
+    }
+}
+
+async function saveProfileUI() {
+    if (!uploadedModelName) {
+        showToast('Upload a model first.', 'warning');
+        return;
+    }
+    try {
+        const profile = readModelProfileFromUI(uploadedModelName);
+        const res = await fetch(`${API}/model-profile/${encodeURIComponent(uploadedModelName)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(profile)
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const saved = await res.json();
+        renderModelProfile(saved);
+        showToast('Feature mapping saved.', 'success');
+    } catch (e) {
+        showToast(`Profile save failed: ${e.message}`, 'error');
+    }
+}
+
+async function uploadPreprocessor(file) {
+    if (!uploadedModelName) {
+        showToast('Upload a model first.', 'warning');
+        return;
+    }
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+        showToast('Uploading preprocessor...', 'info');
+        const res = await fetch(`${API}/upload-preprocessor/${encodeURIComponent(uploadedModelName)}`, {
+            method: 'POST',
+            body: fd
+        });
+        if (!res.ok) throw new Error(await res.text());
+        showToast('Preprocessor uploaded.', 'success');
+    } catch (e) {
+        showToast(`Preprocessor upload failed: ${e.message}`, 'error');
+    }
+}
 
 function setupModelUpload() {
     const section = document.getElementById('upload-model-section');
@@ -408,6 +523,8 @@ function setupModelUpload() {
     const radios = document.querySelectorAll('input[name="conn"]');
     const dropzone = document.getElementById('model-dropzone');
     const fileInput = document.getElementById('model-file-input');
+    const mlflowBtn = document.getElementById('mlflow-import-btn');
+    const mlflowInput = document.getElementById('mlflow-zip-input');
 
     radios.forEach(r => {
         r.addEventListener('change', () => {
@@ -447,10 +564,83 @@ function setupModelUpload() {
                 } else {
                     list.innerHTML = `<span class="muted">No feature names found in model metadata.</span>`;
                 }
-                
+
+                // Wire profile controls (idempotent)
+                const loadBtn = document.getElementById('profile-load-btn');
+                const saveBtn = document.getElementById('profile-save-btn');
+                const upBtn = document.getElementById('upload-preprocessor-btn');
+                const preInput = document.getElementById('preprocessor-file-input');
+                if (loadBtn) loadBtn.onclick = refreshProfileUI;
+                if (saveBtn) saveBtn.onclick = saveProfileUI;
+                if (upBtn && preInput) {
+                    upBtn.onclick = () => preInput.click();
+                    preInput.onchange = async () => {
+                        if (!preInput.files || preInput.files.length === 0) return;
+                        await uploadPreprocessor(preInput.files[0]);
+                        preInput.value = '';
+                    };
+                }
+
+                // Load profile into table
+                await refreshProfileUI();
+
                 showToast('Model uploaded and inspected!', 'success');
             } catch (err) {
                 showToast('Model upload failed', 'error');
+            }
+        });
+    }
+
+    if (mlflowBtn && mlflowInput) {
+        mlflowBtn.addEventListener('click', () => mlflowInput.click());
+        mlflowInput.addEventListener('change', async (e) => {
+            if (!e.target.files || e.target.files.length === 0) return;
+            const file = e.target.files[0];
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                showToast('Importing MLflow bundle...', 'info');
+                const res = await fetch(`${API}/upload-mlflow-model`, { method: 'POST', body: formData });
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+
+                uploadedModelName = data.model_id;
+
+                const info = await fetch(`${API}/inspect-model/${encodeURIComponent(uploadedModelName)}`).then(r => r.json());
+
+                document.getElementById('model-inspect-area').classList.remove('hidden');
+                const list = document.getElementById('model-features-list');
+                if (info.feature_names && info.feature_names.length > 0) {
+                    list.innerHTML = info.feature_names.map(f => `<span class="feature-pill">${escapeHtml(f)}</span>`).join('');
+                } else {
+                    list.innerHTML = `<span class="muted">No feature names found in model metadata.</span>`;
+                }
+
+                // Wire profile controls and load profile.
+                const loadBtn = document.getElementById('profile-load-btn');
+                const saveBtn = document.getElementById('profile-save-btn');
+                const upBtn = document.getElementById('upload-preprocessor-btn');
+                const preInput = document.getElementById('preprocessor-file-input');
+                if (loadBtn) loadBtn.onclick = refreshProfileUI;
+                if (saveBtn) saveBtn.onclick = saveProfileUI;
+                if (upBtn && preInput) {
+                    upBtn.onclick = () => preInput.click();
+                    preInput.onchange = async () => {
+                        if (!preInput.files || preInput.files.length === 0) return;
+                        await uploadPreprocessor(preInput.files[0]);
+                        preInput.value = '';
+                    };
+                }
+
+                await refreshProfileUI();
+
+                showToast('MLflow model imported and inspected!', 'success');
+            } catch (err) {
+                showToast(`MLflow import failed: ${err.message}`, 'error');
+            } finally {
+                mlflowInput.value = '';
             }
         });
     }

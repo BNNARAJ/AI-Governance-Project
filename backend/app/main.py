@@ -8,6 +8,8 @@ from typing import List, Optional
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from datetime import datetime
+import tempfile
+import zipfile
 
 load_dotenv()
 
@@ -30,6 +32,8 @@ from app.services.gemini_service import gemini_service
 from app.services.auth_service import auth_service, UserRole
 from app.services.report_service import generate_audit_report
 from app.services.model_service import model_service
+from app.services.model_profile import ModelProfile, FeatureSpec
+from app.services.mlflow_bundle import import_mlflow_zip_to_model_store
 import requests
 from fastapi.responses import StreamingResponse
 
@@ -157,6 +161,42 @@ async def upload_model(file: UploadFile = File(...)):
     file_path = model_service.save_model(file.file, file.filename)
     return {"message": "Model uploaded successfully", "filename": file.filename}
 
+
+@app.post("/upload-mlflow-model")
+async def upload_mlflow_model(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Only .zip MLflow bundles are supported")
+
+    # Save zip to a temp file first (UploadFile stream can be non-seekable).
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+        import shutil as _shutil
+
+        _shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    try:
+        extracted_root = os.path.join(project_dir, "uploads", "models", "_mlflow")
+        model_id, profile, _bundle_dir = import_mlflow_zip_to_model_store(
+            zip_file_path=tmp_path,
+            original_filename=file.filename,
+            extracted_root_dir=extracted_root,
+            model_store_dir=model_service.model_dir,
+        )
+
+        if profile is not None:
+            model_service.save_profile(model_id, profile.model_dump())
+
+        return {
+            "message": "MLflow model imported successfully",
+            "model_id": model_id,
+            "profile_generated": bool(profile),
+        }
+    finally:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+
 @app.get("/inspect-model/{filename}")
 async def inspect_model(filename: str):
     try:
@@ -164,6 +204,57 @@ async def inspect_model(filename: str):
         return info
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/model-profile/{filename}")
+async def get_model_profile(filename: str):
+    profile = model_service.load_profile(filename)
+    if profile is not None:
+        return profile
+
+    # Generate a safe default profile (user can edit via UI).
+    info = model_service.inspect_model(filename)
+    feature_names = info.get("feature_names") or []
+    if not feature_names:
+        raise HTTPException(
+            status_code=400,
+            detail="Model does not expose feature_names_in_. Provide custom_feature_names or upload a pipeline/preprocessor.",
+        )
+
+    def is_id_like(name: str) -> bool:
+        n = name.strip().lower()
+        return n in {"id", "loan_id"} or n.endswith("_id") or n.endswith("id")
+
+    specs = []
+    for name in feature_names:
+        id_like = is_id_like(name)
+        specs.append(
+            FeatureSpec(
+                name=name,
+                use=not id_like,
+                id_column=id_like,
+                dtype="float",
+                required=False,
+                default=0,
+            )
+        )
+
+    return ModelProfile(model_id=filename, features=specs)
+
+
+@app.post("/model-profile/{filename}")
+async def save_model_profile(filename: str, profile: ModelProfile):
+    saved = model_service.save_profile(filename, profile.model_dump())
+    return saved
+
+
+@app.post("/upload-preprocessor/{filename}")
+async def upload_preprocessor(filename: str, file: UploadFile = File(...)):
+    if not (file.filename.endswith(".pkl") or file.filename.endswith(".joblib")):
+        raise HTTPException(status_code=400, detail="Only .pkl/.joblib files are supported")
+
+    path = model_service.save_preprocessor(filename, file.file)
+    return {"message": "Preprocessor uploaded successfully", "path": path}
 
 # --- Core Endpoints ---
 @app.get("/")
@@ -194,6 +285,7 @@ async def configure_audit(config: AuditConfig):
 @app.post("/run-audit")
 async def run_audit():
     import traceback
+    import re
     try:
         if not current_config:
             raise HTTPException(status_code=400, detail="Audit not configured. Call /configure-audit first.")
@@ -229,25 +321,73 @@ async def run_audit():
                 feature_names=feature_names
             )
         except Exception as e:
-            print(f"Gemini LLM Error: {e}")
-            return {
-                "error": "LLM Service Error - Check API Key",
-                "message": str(e),
-                "raw": "",
-                "details": str(e),
-            }
+            # If we are rate-limited, fall back to deterministic test cases so audits don't hard-fail.
+            err_s = str(e)
+            is_rate_limited = ("rate-limited" in err_s.lower()) or ("quota" in err_s.lower()) or ("resourceexhausted" in err_s.lower())
+            if not is_rate_limited:
+                print(f"Gemini LLM Error: {e}")
+                return {
+                    "error": "LLM Service Error - Check API Key",
+                    "message": err_s,
+                    "raw": "",
+                    "details": err_s,
+                }
+
+            print(f"Gemini rate-limited; falling back to deterministic test cases: {e}")
+            # Build minimal test cases from the model profile + variance factors.
+            if current_config.connection_type == "upload" and current_config.local_file_path:
+                profile = model_service.get_or_default_profile(
+                    current_config.local_file_path,
+                    feature_names=feature_names or current_config.custom_feature_names,
+                )
+                baseline = model_service.build_baseline_features(profile)
+            else:
+                profile = None
+                baseline = {}
+
+            variance = current_config.variance_factors or []
+            n = min(3, len(variance)) if variance else 3
+            test_cases = []
+            for i in range(n):
+                factor = variance[i] if i < len(variance) else f"Factor_{i+1}"
+                feats = baseline
+                if profile is not None:
+                    feats = model_service.apply_variance(profile, baseline, factor, i)
+                test_cases.append(
+                    {
+                        "prompt": f"Deterministic stress test for variance factor: {factor}.",
+                        "expected_behavior": "The model should not produce materially different outcomes solely due to protected attributes; differences must be explainable by legitimate risk factors.",
+                        "risk_area": factor,
+                        "features": feats,
+                    }
+                )
+
+            retry_after = None
+            m = re.search(r"retry in ~?([0-9]+)s", err_s, flags=re.IGNORECASE)
+            if m:
+                try:
+                    retry_after = int(m.group(1))
+                except Exception:
+                    retry_after = None
+
+            # Continue audit with deterministic tests; grading may also be rate-limited and will fall back to defaults.
+            test_cases_raw = ""
+            # Attach a warning that UI can show.
+            llm_warning = f"LLM rate-limited during test generation. Using deterministic test cases. Retry after {retry_after}s." if retry_after else "LLM rate-limited during test generation. Using deterministic test cases."
         
-        try:
-            clean_json = test_cases_raw.strip().replace("```json", "").replace("```", "").strip()
-            test_cases = json.loads(clean_json)
-            if not isinstance(test_cases, list):
-                raise ValueError("LLM did not return a JSON array")
-        except Exception as e:
-            print(f"JSON Parse Error for test cases: {str(e)}")
-            return {"error": "Failed to parse test cases from LLM", "raw": test_cases_raw, "details": str(e)}
+        if "test_cases" not in locals():
+            try:
+                clean_json = test_cases_raw.strip().replace("```json", "").replace("```", "").strip()
+                test_cases = json.loads(clean_json)
+                if not isinstance(test_cases, list):
+                    raise ValueError("LLM did not return a JSON array")
+            except Exception as e:
+                print(f"JSON Parse Error for test cases: {str(e)}")
+                return {"error": "Failed to parse test cases from LLM", "raw": test_cases_raw, "details": str(e)}
 
         print(f"Running {len(test_cases)} tests against target model...")
         results = []
+        to_grade = []
         total_fairness = 0
         total_compliance = 0
         total_accuracy = 0
@@ -270,39 +410,88 @@ async def run_audit():
             else:
                 # 3.1 Execute local model
                 try:
-                    features = test.get("features", {})
-                    # If features is missing but we have a text prompt, this is a gap
-                    # For local models, we MUST have a features dict
-                    if not features:
-                        target_response = "[Error: No numerical features generated for local model]"
-                    else:
-                        prediction = model_service.predict(current_config.local_file_path, features)
-                        target_response = f"Model Prediction: {prediction}"
+                    raw_features = test.get("features", {})
+                    if not isinstance(raw_features, dict):
+                        raw_features = {}
+
+                    profile = model_service.get_or_default_profile(
+                        current_config.local_file_path,
+                        feature_names=feature_names or current_config.custom_feature_names,
+                    )
+                    baseline = model_service.build_baseline_features(profile)
+
+                    # If LLM provides partial features, merge them into the baseline (and ignore unknown columns).
+                    merged = dict(baseline)
+                    for k, v in raw_features.items():
+                        if k in baseline:
+                            merged[k] = v
+
+                    # If LLM doesn't provide usable features, generate a safe variant for the selected risk area.
+                    auto_note = ""
+                    if not raw_features:
+                        risk_area = str(test.get("risk_area") or "")
+                        # Try to choose a factor to vary based on the test's risk_area; fallback to first configured factor.
+                        chosen_factor = None
+                        for vf in (current_config.variance_factors or []):
+                            if vf and vf.lower() in risk_area.lower():
+                                chosen_factor = vf
+                                break
+                        if not chosen_factor and current_config.variance_factors:
+                            chosen_factor = current_config.variance_factors[0]
+
+                        merged = model_service.apply_variance(profile, merged, chosen_factor or "", i)
+                        auto_note = " (input auto-generated)"
+
+                    features = merged
+
+                    prediction = model_service.predict(current_config.local_file_path, features)
+                    target_response = f"Model Prediction: {prediction}{auto_note}"
                 except Exception as e:
                     target_response = f"Local Model Error: {str(e)}"
-
-            # 4. Grade the response
-            print(f"Grading response {i+1}...")
-            grade_raw = await gemini_service.grade_response(
-                test["prompt"], target_response, test["expected_behavior"], context
-            )
-            
-            # Parse grade
-            try:
-                grade_clean = grade_raw.strip().replace("```json", "").replace("```", "").strip()
-                grade = json.loads(grade_clean)
-            except Exception:
-                grade = {"fairness": 5, "compliance": 5, "accuracy": 5, "reasoning": grade_raw}
-            
-            total_fairness += grade.get("fairness", 0)
-            total_compliance += grade.get("compliance", 0)
-            total_accuracy += grade.get("accuracy", 0)
 
             results.append({
                 "test_case": test,
                 "actual_response": target_response,
-                "audit_grade": grade
+                # audit_grade is filled after bulk grading (or defaults if bulk fails)
+                "audit_grade": None
             })
+
+            to_grade.append(
+                {
+                    "prompt": test.get("prompt", ""),
+                    "expected_behavior": test.get("expected_behavior", ""),
+                    "risk_area": test.get("risk_area", ""),
+                    "target_response": target_response,
+                }
+            )
+
+        # 4. Grade the responses (bulk call to reduce rate-limit pressure)
+        print("Grading responses...")
+        grades = []
+        try:
+            grade_raw = await gemini_service.grade_responses_bulk(to_grade, context)
+            grade_clean = grade_raw.strip().replace("```json", "").replace("```", "").strip()
+            grades = json.loads(grade_clean)
+            if not isinstance(grades, list):
+                raise ValueError("Bulk grader did not return a JSON array")
+        except Exception as e:
+            print(f"Bulk grading failed: {e}")
+            grades = []
+
+        by_index = {}
+        for g in grades:
+            if isinstance(g, dict) and "index" in g:
+                try:
+                    by_index[int(g["index"])] = g
+                except Exception:
+                    pass
+
+        for idx, r in enumerate(results):
+            g = by_index.get(idx) or {"fairness": 5, "compliance": 5, "accuracy": 5, "reasoning": "Default grade (bulk grade unavailable)."}
+            r["audit_grade"] = g
+            total_fairness += g.get("fairness", 0) or 0
+            total_compliance += g.get("compliance", 0) or 0
+            total_accuracy += g.get("accuracy", 0) or 0
 
         print("Calculating summary and checking policies...")
         n = len(results) or 1
@@ -339,6 +528,9 @@ async def run_audit():
             "results": results,
             "policy_violations": violations
         }
+
+        if "llm_warning" in locals():
+            last_audit_result["warning"] = llm_warning
 
         print("Audit Complete!")
         return last_audit_result

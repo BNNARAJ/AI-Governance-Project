@@ -173,11 +173,16 @@
 
                         <div id="upload-model-section" class="hidden">
                             <div class="form-group">
-                                <label>Upload .pkl Model</label>
+                                <label>Upload Model</label>
                                 <div class="dropzone mini" id="model-dropzone">
                                     <i data-lucide="package"></i>
                                     <p>Click to upload model</p>
                                     <input type="file" id="model-file-input" accept=".pkl" hidden>
+                                </div>
+                                <div class="muted" style="margin-top:0.5rem">Or import an MLflow bundle (zip):</div>
+                                <div class="btn-group" style="margin-top:0.5rem">
+                                    <button type="button" class="btn-secondary" id="mlflow-import-btn"><i data-lucide="archive"></i> Import MLflow ZIP</button>
+                                    <input type="file" id="mlflow-zip-input" accept=".zip" hidden>
                                 </div>
                                 <div id="model-inspect-area" class="hidden">
                                     <div class="info-tag success" id="model-loaded-tag">✓ Model Loaded</div>
@@ -186,6 +191,43 @@
                                         <label style="font-size: 0.8rem">Manual Feature Names (Optional, CSV)</label>
                                         <input type="text" id="manual-features" placeholder="income,age,gender,location">
                                         <small class="muted">Only use if automatic detection fails or is incomplete.</small>
+                                    </div>
+
+                                    <hr style="margin: 1.25rem 0; border-color: rgba(255,255,255,0.08);">
+
+                                    <div class="profile-editor">
+                                        <div class="profile-header">
+                                            <h3 style="font-family:Outfit,sans-serif;margin:0">Feature Mapping</h3>
+                                            <div class="btn-group">
+                                                <button type="button" class="btn-secondary" id="profile-load-btn"><i data-lucide="refresh-cw"></i> Load</button>
+                                                <button type="button" class="btn-primary" id="profile-save-btn"><i data-lucide="save"></i> Save</button>
+                                            </div>
+                                        </div>
+                                        <p class="muted" style="margin-top:0.5rem">
+                                            Select which columns to use, their types, and defaults. This is applied before local model predictions.
+                                        </p>
+
+                                        <div class="profile-table-wrap">
+                                            <table class="profile-table" id="profile-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Use</th>
+                                                        <th>Feature</th>
+                                                        <th>Type</th>
+                                                        <th>Required</th>
+                                                        <th>Default</th>
+                                                        <th>ID</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody></tbody>
+                                            </table>
+                                        </div>
+
+                                        <div class="profile-footer">
+                                            <button type="button" class="btn-secondary" id="upload-preprocessor-btn"><i data-lucide="upload"></i> Upload Preprocessor (.pkl)</button>
+                                            <input type="file" id="preprocessor-file-input" accept=".pkl,.joblib" hidden>
+                                        </div>
+                                        <small class="muted">Tip: best results come from uploading a full sklearn Pipeline or a preprocessor that can transform raw features.</small>
                                     </div>
                                 </div>
                             </div>

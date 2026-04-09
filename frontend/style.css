@@ -791,3 +791,65 @@ select { cursor: pointer; }
     background: rgba(16, 185, 129, 0.1);
     color: var(--accent);
 }
+
+/* --- Feature Mapping Table --- */
+.profile-editor {
+    margin-top: 0.75rem;
+}
+.profile-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+.profile-table-wrap {
+    margin-top: 0.75rem;
+    border: 1px solid var(--glass-border);
+    border-radius: 0.75rem;
+    overflow: auto;
+    background: rgba(0, 0, 0, 0.15);
+}
+.profile-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 620px;
+}
+.profile-table th,
+.profile-table td {
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 0.85rem;
+    text-align: left;
+    vertical-align: middle;
+}
+.profile-table th {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.02);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.profile-table tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+}
+.profile-table input[type="text"],
+.profile-table select {
+    width: 100%;
+    background: rgba(17, 24, 39, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    color: var(--text);
+    border-radius: 0.5rem;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.85rem;
+    outline: none;
+}
+.profile-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.75rem;
+    margin-top: 0.9rem;
+}
