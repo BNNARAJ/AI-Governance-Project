@@ -12,6 +12,9 @@ import tempfile
 import zipfile
 import hashlib
 import yaml
+import csv
+import asyncio
+import chromadb
 
 load_dotenv()
 
@@ -375,7 +378,7 @@ async def upload_regulations(files: List[UploadFile] = File(...)):
         file_path = os.path.join(upload_dir, file.filename)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        chunks = rag_service.index_pdf(file_path)
+        chunks = await asyncio.to_thread(rag_service.index_pdf, file_path)
         total_chunks += chunks
     
     return {"message": f"Successfully uploaded and indexed {len(files)} files", "total_chunks": total_chunks}
@@ -489,7 +492,7 @@ async def run_audit():
         # 1. Retrieve knowledge from RAG system
         rag_warning = None
         try:
-            context = rag_service.query_regulations("compliance and fairness rules", n_results=5)
+            context = await asyncio.to_thread(rag_service.query_regulations, "compliance and fairness rules", n_results=5)
         except Exception as e:
             context = "No regulations indexed yet. Using default governance baseline thresholds."
             rag_warning = f"RAG retrieval fallback used: {e}"
@@ -1062,6 +1065,8 @@ async def run_audit():
         # 5. Deterministic fairness engine + hybrid validation.
         fairness_metrics: dict[str, Any] = {}
         hybrid_rule_results: list[dict[str, Any]] = []
+        fairness_matrices: dict[str, Any] = {}
+        deterministic_dataset_payload: dict[str, Any] = {}
         deterministic_warning = None
 
         confidence_threshold = 0.75 if not ml_readiness.get("limited_assurance") else 0.9
@@ -1083,12 +1088,43 @@ async def run_audit():
                     if fairness_mode == "upload" and not fairness_file:
                         deterministic_warning = "fairness_data_mode=upload was selected but no file was provided; dummy dataset used."
                 fairness_metrics = fairness_engine.compute_metrics(fairness_dataset)
+                fairness_matrices = fairness_engine.compute_matrices(fairness_dataset)
                 hybrid_rule_results = fairness_engine.evaluate_rules(rules_with_severity, fairness_metrics)
+
+                rows = fairness_engine.to_rows(fairness_dataset)
+                dataset_csv_path = os.path.join(
+                    AUDIT_RESULTS_DIR,
+                    f"fairness_dataset_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                )
+                with open(dataset_csv_path, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=["true_label", "prediction", "sensitive_feature"])
+                    writer.writeheader()
+                    writer.writerows(rows)
+
+                row_cap = 5000
+                deterministic_dataset_payload = {
+                    "columns": ["true_label", "prediction", "sensitive_feature"],
+                    "rows": rows[:row_cap],
+                    "row_count": len(rows),
+                    "truncated": len(rows) > row_cap,
+                    "source_mode": fairness_mode,
+                    "export_csv_path": dataset_csv_path,
+                }
             except Exception as e:
                 deterministic_warning = f"Deterministic fairness engine fallback used: {e}"
                 fairness_dataset = fairness_engine.build_dummy_dataset(n_rows=max(200, desired_n * 25))
                 fairness_metrics = fairness_engine.compute_metrics(fairness_dataset)
+                fairness_matrices = fairness_engine.compute_matrices(fairness_dataset)
                 hybrid_rule_results = fairness_engine.evaluate_rules(rules_with_severity, fairness_metrics)
+                rows = fairness_engine.to_rows(fairness_dataset)
+                deterministic_dataset_payload = {
+                    "columns": ["true_label", "prediction", "sensitive_feature"],
+                    "rows": rows[:5000],
+                    "row_count": len(rows),
+                    "truncated": len(rows) > 5000,
+                    "source_mode": "dummy_fallback",
+                    "export_csv_path": None,
+                }
         else:
             fairness_metrics = {
                 "disparate_impact_ratio": None,
@@ -1096,6 +1132,20 @@ async def run_audit():
                 "selection_rate_min": None,
                 "selection_rate_max": None,
                 "row_count": 0,
+            }
+            fairness_matrices = {
+                "overall_confusion_matrix": None,
+                "overall_rates": {},
+                "by_group": {},
+                "equalized_odds_gap": {"tpr_gap": None, "fpr_gap": None},
+            }
+            deterministic_dataset_payload = {
+                "columns": ["true_label", "prediction", "sensitive_feature"],
+                "rows": [],
+                "row_count": 0,
+                "truncated": False,
+                "source_mode": "not_executed",
+                "export_csv_path": None,
             }
 
         mandatory_failures = [
@@ -1148,8 +1198,10 @@ async def run_audit():
             "hybrid_validation": {
                 "overall_status": hybrid_overall_status,
                 "fairness_metrics": fairness_metrics,
+                "fairness_matrices": fairness_matrices,
                 "rule_results": hybrid_rule_results,
             },
+            "deterministic_dataset": deterministic_dataset_payload,
             "execution_plan": {
                 "model_type": model_type,
                 "behavioral_phase_executed": run_behavioral,

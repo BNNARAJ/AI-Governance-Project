@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from fairlearn.metrics import demographic_parity_difference
+from sklearn.metrics import confusion_matrix
 
 
 @dataclass
@@ -89,6 +90,66 @@ class FairnessEngine:
             "selection_rate_min": round(min_rate, 4),
             "selection_rate_max": round(max_rate, 4),
             "row_count": len(dataset.predictions),
+        }
+
+    def to_rows(self, dataset: FairnessDataset) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for t, p, s in zip(dataset.true_labels, dataset.predictions, dataset.sensitive_feature):
+            rows.append(
+                {
+                    "true_label": int(t),
+                    "prediction": int(p),
+                    "sensitive_feature": str(s),
+                }
+            )
+        return rows
+
+    def compute_matrices(self, dataset: FairnessDataset) -> dict[str, Any]:
+        y_true = np.array(dataset.true_labels)
+        y_pred = np.array(dataset.predictions)
+        groups = np.array(dataset.sensitive_feature)
+
+        def _safe_rates(cm: np.ndarray) -> dict[str, float]:
+            tn, fp, fn, tp = cm.ravel()
+            total = max(int(tn + fp + fn + tp), 1)
+            tpr = (tp / (tp + fn)) if (tp + fn) else 0.0
+            fpr = (fp / (fp + tn)) if (fp + tn) else 0.0
+            precision = (tp / (tp + fp)) if (tp + fp) else 0.0
+            accuracy = (tp + tn) / total
+            return {
+                "tpr": round(float(tpr), 4),
+                "fpr": round(float(fpr), 4),
+                "precision": round(float(precision), 4),
+                "accuracy": round(float(accuracy), 4),
+            }
+
+        overall_cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+        by_group: dict[str, Any] = {}
+        tpr_values: list[float] = []
+        fpr_values: list[float] = []
+        for g in pd.Series(groups).dropna().unique():
+            mask = groups == g
+            cm = confusion_matrix(y_true[mask], y_pred[mask], labels=[0, 1])
+            rates = _safe_rates(cm)
+            tpr_values.append(rates["tpr"])
+            fpr_values.append(rates["fpr"])
+            by_group[str(g)] = {
+                "confusion_matrix": cm.tolist(),
+                "rates": rates,
+                "count": int(mask.sum()),
+            }
+
+        tpr_diff = (max(tpr_values) - min(tpr_values)) if tpr_values else 0.0
+        fpr_diff = (max(fpr_values) - min(fpr_values)) if fpr_values else 0.0
+
+        return {
+            "overall_confusion_matrix": overall_cm.tolist(),
+            "overall_rates": _safe_rates(overall_cm),
+            "by_group": by_group,
+            "equalized_odds_gap": {
+                "tpr_gap": round(float(tpr_diff), 4),
+                "fpr_gap": round(float(fpr_diff), 4),
+            },
         }
 
     def evaluate_rules(self, rules: list[dict[str, Any]], metrics: dict[str, float]) -> list[dict[str, Any]]:

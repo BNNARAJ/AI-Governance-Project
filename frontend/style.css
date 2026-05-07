@@ -2251,6 +2251,74 @@ select {
     color: var(--blue);
 }
 
+/* Deterministic sections */
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+.metric-item {
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 10px;
+    padding: 0.65rem 0.75rem;
+}
+
+.metric-item label {
+    display: block;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    margin-bottom: 0.2rem;
+}
+
+.metric-item strong {
+    font-size: 1rem;
+    color: var(--text);
+}
+
+.table-wrap {
+    margin-top: 0.75rem;
+    overflow-x: auto;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 10px;
+    background: #fff;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.83rem;
+}
+
+.data-table thead th {
+    position: sticky;
+    top: 0;
+    background: #f8fafc;
+    color: var(--text-secondary);
+    text-align: left;
+    padding: 0.62rem 0.68rem;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.1);
+    white-space: nowrap;
+}
+
+.data-table tbody td {
+    padding: 0.54rem 0.68rem;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+    vertical-align: top;
+}
+
+.data-table tbody tr:hover {
+    background: rgba(0, 113, 227, 0.03);
+}
+
+.data-table.compact td,
+.data-table.compact th {
+    font-size: 0.78rem;
+    padding: 0.48rem 0.58rem;
+}
+
 /* ═══════════════════════════════════════
    ADMIN
 ═══════════════════════════════════════ */

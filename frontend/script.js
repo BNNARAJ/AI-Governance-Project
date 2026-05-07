@@ -1,6 +1,7 @@
-const API = 'http://localhost:8000';
+﻿const API = 'http://localhost:8000';
 let authToken = null;
 let currentUser = null;
+let fairnessDataFilePath = null;
 
 // ========== INIT ==========
 document.addEventListener('DOMContentLoaded', () => {
@@ -9,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupUpload();
     setupTags();
     setupAuditForm();
+    setupFairnessDataUpload();
     setupModelUpload();
     setupLogout();
     setupMobileMenu();
@@ -222,7 +224,7 @@ async function loadDashboard() {
                 <div class="history-row">
                     <div class="history-meta">
                         <strong>${escapeHtml(a.model_description.substring(0, 50))}${a.model_description.length > 50 ? '...' : ''}</strong>
-                        <br><span class="muted">${new Date(a.timestamp).toLocaleString()} · ${a.test_count} tests</span>
+                        <br><span class="muted">${new Date(a.timestamp).toLocaleString()} Â· ${a.test_count} tests</span>
                     </div>
                     <div class="history-scores">
                         <span class="mini-score" style="color:var(--accent)">F: ${a.avg_fairness}</span>
@@ -274,7 +276,7 @@ function setupUpload() {
         try {
             const res = await fetch(`${API}/upload-regulations`, { method: 'POST', body: formData });
             const data = await res.json();
-            document.getElementById('upload-status').innerHTML = `<p style="color:var(--accent);margin-top:1rem">✓ ${data.message} (${data.total_chunks} chunks indexed)</p>`;
+            document.getElementById('upload-status').innerHTML = `<p style="color:var(--accent);margin-top:1rem">âœ“ ${data.message} (${data.total_chunks} chunks indexed)</p>`;
             animateCounter(document.getElementById('stat-indexed'), data.total_chunks);
             selectedFiles = [];
             fileList.innerHTML = '';
@@ -325,6 +327,49 @@ function setupTags() {
     }
 }
 
+function setupFairnessDataUpload() {
+    const modeSel = document.getElementById('fairness-data-mode');
+    const wrap = document.getElementById('fairness-upload-wrap');
+    const uploadBtn = document.getElementById('fairness-upload-btn');
+    const fileInput = document.getElementById('fairness-file-input');
+    const status = document.getElementById('fairness-file-status');
+    if (!modeSel || !wrap || !uploadBtn || !fileInput || !status) return;
+
+    const refreshVisibility = () => {
+        const uploadMode = modeSel.value === 'upload';
+        wrap.style.display = uploadMode ? 'block' : 'none';
+        if (!uploadMode) {
+            fairnessDataFilePath = null;
+            status.textContent = 'Required columns: true_label, prediction, sensitive_feature';
+        }
+    };
+    modeSel.addEventListener('change', refreshVisibility);
+    refreshVisibility();
+
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async () => {
+        if (!fileInput.files || fileInput.files.length === 0) return;
+        const file = fileInput.files[0];
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            showToast('Uploading fairness dataset...', 'info');
+            const res = await fetch(`${API}/upload-fairness-data`, { method: 'POST', body: formData });
+            if (!res.ok) throw new Error(await res.text());
+            const payload = await res.json();
+            fairnessDataFilePath = payload.file_path;
+            status.textContent = `Uploaded: ${file.name}`;
+            showToast('Fairness dataset uploaded.', 'success');
+        } catch (err) {
+            fairnessDataFilePath = null;
+            status.textContent = 'Upload failed. Ensure CSV has true_label, prediction, sensitive_feature.';
+            showToast(`Fairness data upload failed: ${err.message}`, 'error');
+        } finally {
+            fileInput.value = '';
+        }
+    });
+}
+
 // ========== AUDIT FORM ==========
 function setupAuditForm() {
     document.getElementById('audit-form').addEventListener('submit', async (e) => {
@@ -344,12 +389,15 @@ function setupAuditForm() {
             model_description: desc,
             variance_factors: tags,
             n_test_cases: parseInt(document.getElementById('test-count')?.value || '6', 10) || 6,
+            model_type: document.getElementById('model-type')?.value || 'auto',
             connection_type: connType,
             api_mode: document.getElementById('api-mode')?.value || 'prompt',
             api_url: document.getElementById('api-url').value || null,
             api_key: document.getElementById('api-key').value || null,
             local_file_path: uploadedModelName,
-            custom_feature_names: manualFeaturesList
+            custom_feature_names: manualFeaturesList,
+            fairness_data_mode: document.getElementById('fairness-data-mode')?.value || 'dummy',
+            fairness_data_file: fairnessDataFilePath
         };
 
         // Step 1: Configure
@@ -676,14 +724,33 @@ function animateProgressSteps() {
 
 // ========== RADIAL GAUGE SVG ==========
 function createGauge(score, label, isOverall = false) {
+    if (score === null || score === undefined || Number.isNaN(Number(score))) {
+        return `
+            <div class="score-item ${isOverall ? 'overall' : ''}">
+                <div class="gauge-container">
+                    <svg class="gauge-svg" viewBox="0 0 100 100">
+                        <circle class="gauge-bg" cx="50" cy="50" r="42"></circle>
+                    </svg>
+                    <div class="gauge-text">
+                        <div class="gauge-value" style="color:var(--text-muted)">N/A</div>
+                        <div class="gauge-sub"></div>
+                    </div>
+                </div>
+                <div class="score-label">${label}</div>
+                <div class="score-rating" style="color:var(--text-muted)">Not Executed</div>
+            </div>
+        `;
+    }
+
     const radius = 42;
     const circumference = 2 * Math.PI * radius;
-    const pct = Math.min(score / 10, 1);
+    const numericScore = Number(score);
+    const pct = Math.min(numericScore / 10, 1);
     const offset = circumference * (1 - pct);
 
     const getClass = (v) => v >= 7 ? 'good' : v >= 4 ? 'warning' : 'bad';
     const getRating = (v) => v >= 8 ? 'Excellent' : v >= 7 ? 'Good' : v >= 5 ? 'Fair' : v >= 3 ? 'Poor' : 'Critical';
-    const colorClass = isOverall ? 'primary' : getClass(score);
+    const colorClass = isOverall ? 'primary' : getClass(numericScore);
 
     return `
         <div class="score-item ${isOverall ? 'overall' : ''}">
@@ -697,12 +764,12 @@ function createGauge(score, label, isOverall = false) {
                     </circle>
                 </svg>
                 <div class="gauge-text">
-                    <div class="gauge-value ${colorClass}" data-target="${score}">0</div>
+                    <div class="gauge-value ${colorClass}" data-target="${numericScore}">0</div>
                     <div class="gauge-sub">/10</div>
                 </div>
             </div>
             <div class="score-label">${label}</div>
-            <div class="score-rating ${colorClass}">${getRating(score)}</div>
+            <div class="score-rating ${colorClass}">${getRating(numericScore)}</div>
         </div>
     `;
 }
@@ -743,24 +810,33 @@ function animateGauges() {
 // ========== RENDER RESULTS ==========
 function renderResults(data) {
     const summary = data.summary;
+    const hybrid = data.hybrid_validation || {};
+    const metrics = hybrid.fairness_metrics || {};
+    const matrices = hybrid.fairness_matrices || {};
+    const rules = hybrid.rule_results || [];
+    const dataset = data.deterministic_dataset || {};
 
-    const avg_f = summary.avg_fairness;
-    const avg_c = summary.avg_compliance;
-    const avg_a = summary.avg_accuracy;
-    const overall = ((avg_f + avg_c + avg_a) / 3).toFixed(1);
+    const behavioralRan = !!summary.behavioral_phase_executed;
+    const avg_f = behavioralRan ? Number(summary.avg_fairness) : null;
+    const avg_c = behavioralRan ? Number(summary.avg_compliance) : null;
+    const avg_a = behavioralRan ? Number(summary.avg_accuracy) : null;
+    const overall = behavioralRan ? ((avg_f + avg_c + avg_a) / 3).toFixed(1) : null;
+    const fmt = (v, d = 4) => (v === null || v === undefined || Number.isNaN(Number(v)) ? 'N/A' : Number(v).toFixed(d));
 
-    // Scorecard with SVG gauges
     document.getElementById('audit-summary').classList.remove('hidden');
     document.getElementById('audit-summary').innerHTML = `
         <div class="panel glass">
             <h2><i data-lucide="award"></i> Fairness Scorecard</h2>
-            <p class="muted">${escapeHtml(summary.model_description)} · ${summary.test_count} test cases · ${new Date(summary.timestamp).toLocaleString()}</p>
-            ${data.policy_violations > 0
-            ? `<p style="color:var(--danger);margin-top:0.5rem">⚠ ${data.policy_violations} policy violation(s) detected</p>`
-            : `<p style="color:var(--accent);margin-top:0.5rem">✓ No policy violations detected</p>`
-        }
+            <p class="muted">${escapeHtml(summary.model_description)} · ${summary.test_count} behavioral tests · ${new Date(summary.timestamp).toLocaleString()}</p>
+            <p class="muted">Model type: <strong>${escapeHtml(summary.model_type_resolved || 'auto')}</strong> · Assurance: <strong>${escapeHtml(summary.assurance_level || 'N/A')}</strong> · Ingestion: <strong>${escapeHtml(summary.ml_ingestion_level || 'N/A')}</strong></p>
+            ${behavioralRan && data.policy_violations > 0
+                ? `<p style="color:var(--danger);margin-top:0.5rem">Warning: ${data.policy_violations} policy violation(s) detected</p>`
+                : behavioralRan
+                    ? `<p style="color:var(--accent);margin-top:0.5rem">OK: No policy violations detected</p>`
+                    : `<p class="muted" style="margin-top:0.5rem">Behavioral scoring was not executed in this run.</p>`
+            }
             <div class="scorecard">
-                ${createGauge(parseFloat(overall), 'Overall', true)}
+                ${createGauge(behavioralRan ? parseFloat(overall) : null, 'Overall', true)}
                 ${createGauge(avg_f, 'Fairness')}
                 ${createGauge(avg_c, 'Compliance')}
                 ${createGauge(avg_a, 'Accuracy')}
@@ -772,21 +848,110 @@ function renderResults(data) {
             <button class="btn-accent" id="download-report-btn"><i data-lucide="file-down"></i> Download PDF Report</button>
             <button class="btn-secondary" onclick="switchView('config')"><i data-lucide="rotate-ccw"></i> Run Another Audit</button>
         </div>
+
+        <div class="panel glass">
+            <h2><i data-lucide="scale"></i> Deterministic Fairness Metrics</h2>
+            <div class="metrics-grid">
+                <div class="metric-item"><label>Hybrid Status</label><strong>${escapeHtml(hybrid.overall_status || 'N/A')}</strong></div>
+                <div class="metric-item"><label>Disparate Impact Ratio</label><strong>${fmt(metrics.disparate_impact_ratio, 4)}</strong></div>
+                <div class="metric-item"><label>Demographic Parity Difference</label><strong>${fmt(metrics.demographic_parity_difference, 4)}</strong></div>
+                <div class="metric-item"><label>Selection Rate (Min)</label><strong>${fmt(metrics.selection_rate_min, 4)}</strong></div>
+                <div class="metric-item"><label>Selection Rate (Max)</label><strong>${fmt(metrics.selection_rate_max, 4)}</strong></div>
+                <div class="metric-item"><label>Rows Evaluated</label><strong>${escapeHtml(metrics.row_count ?? 0)}</strong></div>
+                <div class="metric-item"><label>Equalized Odds TPR Gap</label><strong>${fmt(matrices.equalized_odds_gap?.tpr_gap, 4)}</strong></div>
+                <div class="metric-item"><label>Equalized Odds FPR Gap</label><strong>${fmt(matrices.equalized_odds_gap?.fpr_gap, 4)}</strong></div>
+            </div>
+            ${data.deterministic_warning ? `<p style="color:var(--warning);margin-top:0.8rem">${escapeHtml(data.deterministic_warning)}</p>` : ''}
+        </div>
+
+        <div class="panel glass">
+            <h2><i data-lucide="clipboard-list"></i> Rule Validation</h2>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Metric</th><th>Operator</th><th>Threshold</th><th>Actual</th><th>Severity</th><th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rules.length ? rules.map(r => `
+                            <tr>
+                                <td>${escapeHtml(r.metric_name || '')}</td>
+                                <td>${escapeHtml(r.operator || '')}</td>
+                                <td>${escapeHtml(r.operator === 'between' ? `${r.threshold_min} to ${r.threshold_max}` : `${r.threshold_min}`)}</td>
+                                <td>${escapeHtml(r.actual_value ?? 'N/A')}</td>
+                                <td>${escapeHtml(r.severity || 'N/A')}</td>
+                                <td><strong style="color:${r.status === 'PASS' ? 'var(--accent)' : 'var(--danger)'}">${escapeHtml(r.status || 'N/A')}</strong></td>
+                            </tr>
+                        `).join('') : `<tr><td colspan="6" class="muted">No rules available.</td></tr>`}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel glass">
+            <h2><i data-lucide="grid-2x2"></i> Confusion Matrices</h2>
+            <p class="muted">Matrix format: [[TN, FP], [FN, TP]]</p>
+            <div class="table-wrap">
+                <table class="data-table compact">
+                    <thead><tr><th>Scope</th><th>Matrix</th><th>TPR</th><th>FPR</th><th>Precision</th><th>Accuracy</th></tr></thead>
+                    <tbody>
+                        <tr>
+                            <td>Overall</td>
+                            <td>${escapeHtml(matrices.overall_confusion_matrix ? JSON.stringify(matrices.overall_confusion_matrix) : 'N/A')}</td>
+                            <td>${fmt(matrices.overall_rates?.tpr, 4)}</td>
+                            <td>${fmt(matrices.overall_rates?.fpr, 4)}</td>
+                            <td>${fmt(matrices.overall_rates?.precision, 4)}</td>
+                            <td>${fmt(matrices.overall_rates?.accuracy, 4)}</td>
+                        </tr>
+                        ${Object.entries(matrices.by_group || {}).map(([g, v]) => `
+                            <tr>
+                                <td>${escapeHtml(g)}</td>
+                                <td>${escapeHtml(JSON.stringify(v.confusion_matrix || 'N/A'))}</td>
+                                <td>${fmt(v.rates?.tpr, 4)}</td>
+                                <td>${fmt(v.rates?.fpr, 4)}</td>
+                                <td>${fmt(v.rates?.precision, 4)}</td>
+                                <td>${fmt(v.rates?.accuracy, 4)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel glass">
+            <h2><i data-lucide="table"></i> Full Deterministic Dataset Used</h2>
+            <p class="muted">Rows: ${escapeHtml(dataset.row_count ?? 0)} · Source: ${escapeHtml(dataset.source_mode || 'N/A')}${dataset.truncated ? ' · showing first 5000 rows' : ''}</p>
+            <div class="table-wrap">
+                <table class="data-table compact">
+                    <thead><tr><th>#</th><th>true_label</th><th>prediction</th><th>sensitive_feature</th></tr></thead>
+                    <tbody>
+                        ${(Array.isArray(dataset.rows) && dataset.rows.length) ? dataset.rows.map((row, idx) => `
+                            <tr>
+                                <td>${idx + 1}</td>
+                                <td>${escapeHtml(row.true_label)}</td>
+                                <td>${escapeHtml(row.prediction)}</td>
+                                <td>${escapeHtml(row.sensitive_feature)}</td>
+                            </tr>
+                        `).join('') : `<tr><td colspan="4" class="muted">No deterministic dataset rows available.</td></tr>`}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     `;
     lucide.createIcons();
-
-    // Animate the gauges
     setTimeout(animateGauges, 200);
-
-    // Wire up PDF download
     document.getElementById('download-report-btn')?.addEventListener('click', downloadReport);
 
-    // Individual results (collapsible)
     const listEl = document.getElementById('audit-results-list');
-    listEl.innerHTML = '<h2 style="margin-bottom:1rem;font-family:Outfit,sans-serif">Detailed Test Results</h2>';
+    listEl.innerHTML = '<h2 style="margin-bottom:1rem;font-family:Outfit,sans-serif">Detailed Behavioral Test Results</h2>';
+    if (!Array.isArray(data.results) || data.results.length === 0) {
+        listEl.innerHTML += '<div class="panel glass"><p class="muted">No behavioral test cases were executed in this run.</p></div>';
+        return;
+    }
 
     data.results.forEach((r, i) => {
-        const g = r.audit_grade;
+        const g = r.audit_grade || {};
         const card = document.createElement('div');
         card.className = 'result-card glass collapsed';
         card.innerHTML = `
@@ -796,9 +961,9 @@ function renderResults(data) {
                     <div>
                         <strong>${escapeHtml(String(r.test_case.prompt || 'Test').substring(0, 70))}${String(r.test_case.prompt || '').length > 70 ? '...' : ''}</strong>
                         <div class="result-scores" style="margin-top:0.35rem">
-                            <span class="mini-score" style="color:${scoreColor(g.fairness)}">F: ${g.fairness || '?'}</span>
-                            <span class="mini-score" style="color:${scoreColor(g.compliance)}">C: ${g.compliance || '?'}</span>
-                            <span class="mini-score" style="color:${scoreColor(g.accuracy)}">A: ${g.accuracy || '?'}</span>
+                            <span class="mini-score" style="color:${scoreColor(g.fairness)}">F: ${g.fairness ?? '?'}</span>
+                            <span class="mini-score" style="color:${scoreColor(g.compliance)}">C: ${g.compliance ?? '?'}</span>
+                            <span class="mini-score" style="color:${scoreColor(g.accuracy)}">A: ${g.accuracy ?? '?'}</span>
                         </div>
                     </div>
                 </div>
@@ -808,48 +973,35 @@ function renderResults(data) {
                 </div>
             </div>
             <div class="result-detail">
-                <div class="result-section">
-                    <label>Test Scenario</label>
-                    <p>${escapeHtml(String(r.test_case.prompt || 'N/A'))}</p>
-                </div>
-                <div class="result-section">
-                    <label>Expected Behavior</label>
-                    <p style="color:var(--accent)">${escapeHtml(String(r.test_case.expected_behavior || 'N/A'))}</p>
-                </div>
-                <div class="result-section">
-                    <label>Actual Response</label>
-                    <p>${escapeHtml(String(r.actual_response || 'N/A'))}</p>
-                </div>
+                <div class="result-section"><label>Test Scenario</label><p>${escapeHtml(String(r.test_case.prompt || 'N/A'))}</p></div>
+                <div class="result-section"><label>Expected Behavior</label><p style="color:var(--accent)">${escapeHtml(String(r.test_case.expected_behavior || 'N/A'))}</p></div>
+                <div class="result-section"><label>Actual Response</label><p>${escapeHtml(String(r.actual_response || 'N/A'))}</p></div>
                 <div class="result-section">
                     <label>Audit Grade</label>
                     <div class="mini-scores">
-                        <span class="mini-score">Fairness: ${g.fairness || '?'}/10</span>
-                        <span class="mini-score">Compliance: ${g.compliance || '?'}/10</span>
-                        <span class="mini-score">Accuracy: ${g.accuracy || '?'}/10</span>
+                        <span class="mini-score">Fairness: ${g.fairness ?? '?'}/10</span>
+                        <span class="mini-score">Compliance: ${g.compliance ?? '?'}/10</span>
+                        <span class="mini-score">Accuracy: ${g.accuracy ?? '?'}/10</span>
                     </div>
                     ${g.reasoning ? `<p style="margin-top:0.5rem;font-size:0.85rem;color:var(--text-muted)">${escapeHtml(String(g.reasoning))}</p>` : ''}
                 </div>
             </div>
         `;
-
-        // Click to expand/collapse
         card.querySelector('.result-header').addEventListener('click', () => {
             card.classList.toggle('collapsed');
         });
-
         listEl.appendChild(card);
     });
-
     lucide.createIcons();
 }
 
 function scoreColor(v) {
-    if (typeof v !== 'number') return 'var(--text-muted)';
-    if (v >= 7) return 'var(--accent)';
-    if (v >= 4) return 'var(--warning)';
+    const n = Number(v);
+    if (!Number.isFinite(n)) return 'var(--text-muted)';
+    if (n >= 7) return 'var(--accent)';
+    if (n >= 4) return 'var(--warning)';
     return 'var(--danger)';
 }
-
 // ========== PDF REPORT DOWNLOAD ==========
 async function downloadReport() {
     const btn = document.getElementById('download-report-btn');
