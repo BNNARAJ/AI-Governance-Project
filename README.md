@@ -1,157 +1,146 @@
-# 🛡️ AI Governance Agent
+# AI Governance Agent
 
-A **generalized AI governance platform** that audits any AI model for bias, fairness, and regulatory compliance — across any industry domain (Finance, Agriculture, Healthcare, etc.).
+A generalized AI governance platform to audit AI models for fairness, compliance, and accuracy across domains like finance, agriculture, and healthcare.
 
-## 🏗️ Architecture
+## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  LAYER 1 — INPUT LAYER (Frontend Dashboard)                     │
-│  Upload regulations (PDF) · Define variance factors · Connect   │
-│  your model via API endpoint or file upload                     │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 2 — RAG LAYER (ChromaDB + Gemini Embeddings)             │
-│  Chunks uploaded PDFs · Stores as vectors · Builds compliance   │
-│  knowledge base for contextual retrieval                        │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 3 — TEST GENERATION (Gemini 1.5 Pro)                     │
-│  Generates synthetic adversarial test cases targeting the       │
-│  user-defined variance factors (e.g., Gender, Crop Type)        │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 4 — MODEL TESTING                                        │
-│  Sends test cases to the target model · Captures responses      │
-│  for evaluation against the compliance knowledge base           │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 5 — OUTPUT LAYER (Scorecard & Reports)                   │
-│  Grades each response on Fairness, Compliance, Accuracy (0-10)  │
-│  Generates detailed audit reports with actionable insights      │
-└─────────────────────────────────────────────────────────────────┘
-```
+1. Input Layer
+- Upload regulation PDFs.
+- Configure variance factors.
+- Connect model via API or local model upload.
 
-## 🚀 Quick Start
+2. RAG Layer
+- Indexes regulation PDFs into ChromaDB.
+- Uses Gemini embeddings for retrieval.
+- Supplies compliance context to audit generation and grading.
 
-#### Option A: One-Click Run (Windows)
-Double-click `run_app.bat` in the root folder. It will start the backend and open the dashboard in your browser.
+3. Test Generation Layer
+- Generates synthetic audit scenarios for configured variance factors.
+- Supports deterministic fallback when LLM rate limits occur.
 
-#### Option B: Manual Setup
-### Prerequisites
-- **Python 3.11+**
-- **Google AI Studio API Key** ([Get one here](https://aistudio.google.com/apikey))
+4. Model Testing Layer
+- Executes test scenarios against API models or uploaded local models.
 
-### 1. Clone & Setup
+5. Output Layer
+- Produces fairness/compliance/accuracy scores.
+- Generates downloadable audit reports.
+
+## Intelligent RAG Chunking (New)
+
+`backend/app/services/rag_service.py` now uses structure-aware chunking inspired by the CodeSight approach, adapted for regulation PDFs.
+
+- Section-aware chunk boundaries instead of naive fixed-size-only splitting.
+- Heading detection for legal style sections (`Section`, `Article`, numbered clauses, uppercase headings).
+- Paragraph-preserving chunk assembly to reduce meaning breaks.
+- Sentence-level overlap carry-forward between neighboring chunks.
+- Text normalization for PDF artifacts (line-break hyphenation and whitespace cleanup).
+- Rich chunk metadata: `source_file`, `page_number`, `section_heading`, `chunk_index`.
+- Retrieval output includes source/page/section context for traceability.
+
+Recommended migration after this update:
+
+1. Stop backend.
+2. Delete old vector store at `data/chroma_db`.
+3. Restart backend.
+4. Re-upload regulation PDFs so they are re-indexed with the new chunking strategy.
+
+## Quick Start
+
+### Option A: One-click run (Windows)
+
+Double-click `run_app.bat` from the project root.
+
+### Option B: Manual setup
+
+Prerequisites:
+- Python 3.11+
+- Google AI Studio API key
+
+Setup:
 
 ```bash
-# Navigate to the project
 cd "AI Governance Project"
-
-# Create virtual environment (skip if already done)
 python -m venv backend\venv
-
-# Activate virtual environment
-.\backend\venv\Scripts\Activate.ps1    # Windows PowerShell
-# source backend/venv/bin/activate     # macOS/Linux
-
-# Install dependencies
+.\backend\venv\Scripts\Activate.ps1
 pip install -r backend\requirements.txt
 ```
 
-### 2. Configure API Key
+Configure API key in `backend/.env`:
 
-Edit `backend/.env` and replace with your key:
-```
+```env
 GOOGLE_API_KEY=your_actual_gemini_api_key
 ```
 
-### 3. Launch the Backend
-
-The backend is a FastAPI application that handles RAG indexing and LLM orchestration.
+Run backend:
 
 ```bash
-# Navigate to backend directory
 cd backend
-
-# Run the backend
 .\venv\Scripts\python.exe -m app.main
 ```
 
-The API will be live at **http://localhost:8000**. You can verify at http://localhost:8000/docs (Swagger UI).
+Backend docs: `http://localhost:8000/docs`
 
-### 4. Open the Frontend
+Run frontend:
 
-The frontend is a premium glassmorphism dashboard built with Vanilla HTML/JS. You can open it directly or serve it via a local web server (recommended).
-
-**Option A: Local Server (Recommended)**
 ```bash
-# In a new terminal
 cd frontend
 python -m http.server 3000
 ```
-Then visit **http://localhost:3000** in your browser.
 
-**Option B: Direct File Open**
-- Simply open `frontend/index.html` in your web browser.
-- Ensure the **"API Online"** status pill in the top right is green.
-- **Login Credentials:**
-    - `admin` / `admin123` (Full access)
-    - `compliance` / `compliance123`
-    - `developer` / `developer123`
+Frontend URL: `http://localhost:3000`
 
-## 📋 Usage
+## Usage
 
-1. **Upload Regulations** — Drag & drop any PDF (RBI guidelines, agricultural standards, healthcare protocols, etc.)
-2. **Configure Audit** — Describe the model, add variance factors (custom or preset), and connect your model's API endpoint
-3. **Run Audit** — The agent generates adversarial test cases, tests your model, and grades each response
-4. **View Results** — Get a Fairness Scorecard with scores on Fairness, Compliance, and Accuracy
+1. Upload one or more regulation PDFs.
+2. Configure audit details and variance factors.
+3. Set test case count and run audit.
+4. Review scenario-level grades and report.
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 | Component | Technology |
 |---|---|
-| Frontend | HTML, CSS (Glassmorphism), Vanilla JS |
+| Frontend | HTML, CSS, Vanilla JS |
 | Backend | Python, FastAPI |
-| LLM | Google Gemini 1.5 Flash |
+| LLM | Gemini (generation + grading) |
+| Embeddings | Gemini Embeddings API |
 | Vector DB | ChromaDB |
-| RAG | LangChain + Gemini Embeddings |
-| PDF Parsing | PyPDF |
+| PDF Loader | LangChain PyPDFLoader |
 
-## 📁 Project Structure
+## Project Structure
 
-```
+```text
 AI Governance Project/
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py              # FastAPI routes & orchestration
-│   │   └── services/
-│   │       ├── __init__.py
-│   │       ├── gemini_service.py # LLM logic (test gen + grading)
-│   │       └── rag_service.py    # PDF indexing & vector search
-│   ├── .env                     # API key (not committed)
-│   ├── requirements.txt
-│   └── venv/                    # Python virtual environment
-├── frontend/
-│   ├── index.html               # Dashboard UI
-│   ├── style.css                # Premium dark theme
-│   └── script.js                # Frontend logic
-├── data/                        # ChromaDB persistence
-├── uploads/                     # Uploaded regulation PDFs
-└── README.md
+|-- backend/
+|   |-- app/
+|   |   |-- main.py
+|   |   `-- services/
+|   |       |-- gemini_service.py
+|   |       |-- model_service.py
+|   |       `-- rag_service.py
+|   |-- requirements.txt
+|   `-- .env
+|-- frontend/
+|   |-- index.html
+|   |-- script.js
+|   `-- style.css
+|-- data/
+|-- uploads/
+`-- README.md
 ```
 
-## 👥 User Roles
+## Default Login Users
 
-| Role | Capabilities |
-|---|---|
-| **Compliance Officer** | Upload regulations, define variance factors, review audit reports |
-| **AI Developer** | Connect model API, view Fairness Scorecard, debug biased behavior |
-| **Admin** | Manage access, set compliance policies, monitor system-wide fairness |
+- `admin` / `admin123`
+- `compliance` / `compliance123`
+- `developer` / `developer123`
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
-- **API Offline:** Ensure the backend is running on port 8000. Check if any other process is using that port.
-- **Gemini Errors:** Verify your `GOOGLE_API_KEY` in `backend/.env`. Ensure you have quotas for `gemini-1.5-flash`.
-- **CORS Issues:** If the frontend cannot talk to the backend, ensure you are accessing the frontend via `file://` or a local server, and the backend has CORS enabled (it is by default in `main.py`).
+- API offline: ensure backend is running on port 8000.
+- Gemini errors: verify `GOOGLE_API_KEY` and API quota.
+- Empty/poor retrieval: clear `data/chroma_db` and re-upload regulations.
 
-## 📄 License
+## License
 
-This project is for educational and research purposes.
+For educational and research use.

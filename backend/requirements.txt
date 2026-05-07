@@ -16,3 +16,4 @@ scikit-learn
 pandas
 joblib
 pyyaml
+fairlearn

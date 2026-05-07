@@ -343,7 +343,9 @@ function setupAuditForm() {
         const config = {
             model_description: desc,
             variance_factors: tags,
+            n_test_cases: parseInt(document.getElementById('test-count')?.value || '6', 10) || 6,
             connection_type: connType,
+            api_mode: document.getElementById('api-mode')?.value || 'prompt',
             api_url: document.getElementById('api-url').value || null,
             api_key: document.getElementById('api-key').value || null,
             local_file_path: uploadedModelName,
@@ -423,7 +425,7 @@ function renderModelProfile(profile) {
             <td><span class="muted" style="font-size:0.9rem">${escapeHtml(f.name)}</span></td>
             <td>
                 <select class="profile-dtype">
-                    ${['float','int','bool','category','string'].map(t => `<option value="${t}" ${f.dtype === t ? 'selected' : ''}>${t}</option>`).join('')}
+                    ${['float', 'int', 'bool', 'category', 'string'].map(t => `<option value="${t}" ${f.dtype === t ? 'selected' : ''}>${t}</option>`).join('')}
                 </select>
             </td>
             <td><input type="checkbox" class="profile-required" ${f.required ? 'checked' : ''}></td>
@@ -543,7 +545,7 @@ function setupModelUpload() {
         fileInput.addEventListener('change', async (e) => {
             if (e.target.files.length === 0) return;
             const file = e.target.files[0];
-            
+
             const formData = new FormData();
             formData.append('file', file);
 
@@ -552,10 +554,10 @@ function setupModelUpload() {
                 const res = await fetch(`${API}/upload-model`, { method: 'POST', body: formData });
                 const data = await res.json();
                 uploadedModelName = data.filename;
-                
+
                 // Inspect
                 const info = await fetch(`${API}/inspect-model/${uploadedModelName}`).then(r => r.json());
-                
+
                 // Show info
                 document.getElementById('model-inspect-area').classList.remove('hidden');
                 const list = document.getElementById('model-features-list');
@@ -754,9 +756,9 @@ function renderResults(data) {
             <h2><i data-lucide="award"></i> Fairness Scorecard</h2>
             <p class="muted">${escapeHtml(summary.model_description)} · ${summary.test_count} test cases · ${new Date(summary.timestamp).toLocaleString()}</p>
             ${data.policy_violations > 0
-                ? `<p style="color:var(--danger);margin-top:0.5rem">⚠ ${data.policy_violations} policy violation(s) detected</p>`
-                : `<p style="color:var(--accent);margin-top:0.5rem">✓ No policy violations detected</p>`
-            }
+            ? `<p style="color:var(--danger);margin-top:0.5rem">⚠ ${data.policy_violations} policy violation(s) detected</p>`
+            : `<p style="color:var(--accent);margin-top:0.5rem">✓ No policy violations detected</p>`
+        }
             <div class="scorecard">
                 ${createGauge(parseFloat(overall), 'Overall', true)}
                 ${createGauge(avg_f, 'Fairness')}
@@ -807,7 +809,7 @@ function renderResults(data) {
             </div>
             <div class="result-detail">
                 <div class="result-section">
-                    <label>Prompt Sent</label>
+                    <label>Test Scenario</label>
                     <p>${escapeHtml(String(r.test_case.prompt || 'N/A'))}</p>
                 </div>
                 <div class="result-section">
@@ -852,31 +854,85 @@ function scoreColor(v) {
 async function downloadReport() {
     const btn = document.getElementById('download-report-btn');
     if (!btn) return;
+
+    // Disable button and show loading state
     btn.disabled = true;
     btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;margin:0"></div> Generating...';
 
     try {
-        const res = await fetch(`${API}/generate-report`, { method: 'POST' });
-        if (!res.ok) throw new Error('Report generation failed');
+        console.log('Fetching PDF report from:', `${API}/generate-report`);
 
+        // Call the backend endpoint to generate PDF
+        const res = await fetch(`${API}/generate-report`, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/pdf'
+            }
+        });
+
+        console.log('Response status:', res.status, 'Content-Type:', res.headers.get('content-type'));
+
+        // Check if request was successful
+        if (!res.ok) {
+            let errorMessage = `Server error: ${res.status}`;
+            try {
+                const contentType = res.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    const errorData = await res.json();
+                    errorMessage = errorData.detail || errorData.message || errorMessage;
+                } else {
+                    const text = await res.text();
+                    errorMessage = text || errorMessage;
+                }
+            } catch (e) {
+                console.error('Error parsing error response:', e);
+            }
+            throw new Error(errorMessage);
+        }
+
+        // Convert response to blob (binary data)
         const blob = await res.blob();
+        console.log('Blob size:', blob.size, 'Blob type:', blob.type);
+
+        // Validate that we got actual PDF data
+        if (blob.size === 0) {
+            throw new Error('Generated PDF is empty');
+        }
+
+        // Verify it's a PDF
+        if (!blob.type.includes('application/pdf')) {
+            console.warn('Warning: Expected PDF, got', blob.type);
+        }
+
+        // Create a temporary URL for the blob
         const url = URL.createObjectURL(blob);
+
+        // Create a temporary anchor element to trigger download
         const a = document.createElement('a');
         a.href = url;
         a.download = `AI_Governance_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+
+        // Add to DOM, click to download, then clean up
         document.body.appendChild(a);
         a.click();
         a.remove();
+
+        // Clean up the temporary URL
         URL.revokeObjectURL(url);
-        showToast('PDF report downloaded!', 'success');
+
+        showToast('PDF report downloaded successfully!', 'success');
+
     } catch (err) {
+        console.error('Report download error:', err);
         showToast(`Report error: ${err.message}`, 'error');
     } finally {
+        // Always restore button state
         btn.disabled = false;
         btn.innerHTML = '<i data-lucide="file-down"></i> Download PDF Report';
         lucide.createIcons();
     }
 }
+
 
 // ========== ADMIN ==========
 async function loadAdmin() {

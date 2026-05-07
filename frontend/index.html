@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Governance Agent | Dashboard</title>
     <meta name="description" content="Generalized AI Governance Agent — audit any AI model for bias, fairness, and regulatory compliance across any industry.">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=20260410a">
+    <link rel="stylesheet" href="theme-light.css?v=20260410a">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -158,6 +159,16 @@
                         </div>
 
                         <div class="form-group">
+                            <label>Number of Test Cases</label>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <input type="number" id="test-count" min="1" max="20" step="1" value="6">
+                                    <small class="muted">Recommended: 6. Higher values may hit LLM rate limits.</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
                             <label>Model Connection</label>
                             <div class="radio-group">
                                 <label class="radio-card glass">
@@ -242,6 +253,16 @@
                                 <div class="form-group flex-1">
                                     <label>API Key</label>
                                     <input type="password" id="api-key" placeholder="Bearer sk-...">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label>API Mode</label>
+                                    <select id="api-mode">
+                                        <option value="prompt" selected>Prompt (LLM-style)</option>
+                                        <option value="features">Features (ML predict JSON)</option>
+                                    </select>
+                                    <small class="muted">Use “Features” for classic ML prediction endpoints.</small>
                                 </div>
                             </div>
                         </div>
@@ -344,6 +365,6 @@
         </main>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=20260410a"></script>
 </body>
 </html>
