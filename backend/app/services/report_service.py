@@ -162,6 +162,9 @@ def generate_audit_report(audit_data: dict) -> BytesIO:
     summary = audit_data.get("summary", {})
     results = audit_data.get("results", [])
     violations = audit_data.get("policy_violations", 0)
+    hybrid = audit_data.get("hybrid_validation", {}) or {}
+    hybrid_metrics = hybrid.get("fairness_metrics", {}) or {}
+    hybrid_rules = hybrid.get("rule_results", []) or []
 
     # ─── HEADER ───
     story.append(Spacer(1, 0.5*cm))
@@ -253,6 +256,66 @@ def generate_audit_report(audit_data: dict) -> BytesIO:
     story.append(Spacer(1, 0.5*cm))
 
     # ─── DETAILED RESULTS ───
+    story.append(Paragraph("Hybrid Validation", styles["SectionHeading"]))
+    overall_status = str(hybrid.get("overall_status", "N/A")).upper()
+    status_style = styles["SuccessText"] if overall_status == "PASS" else styles["ErrorText"]
+    story.append(Paragraph(f"<b>Overall Hybrid Status: {overall_status}</b>", status_style))
+    story.append(Spacer(1, 0.2 * cm))
+
+    metric_rows = [
+        ["Metric", "Value", "Reference"],
+        ["Disparate Impact Ratio", str(hybrid_metrics.get("disparate_impact_ratio", "N/A")), "Target >= 0.8"],
+        ["Demographic Parity Difference", str(hybrid_metrics.get("demographic_parity_difference", "N/A")), "Target <= 0.1"],
+        ["Selection Rate (Min / Max)", f"{hybrid_metrics.get('selection_rate_min', 'N/A')} / {hybrid_metrics.get('selection_rate_max', 'N/A')}", "Closer gap is better"],
+        ["Sample Size (Rows)", str(hybrid_metrics.get("row_count", "N/A")), "Rows used in deterministic engine"],
+        ["Classification Accuracy", str(hybrid_metrics.get("classification_accuracy", "N/A")), "(TP + TN) / Total"],
+        ["Precision", str(hybrid_metrics.get("precision", "N/A")), "TP / (TP + FP)"],
+        ["Recall", str(hybrid_metrics.get("recall", "N/A")), "TP / (TP + FN)"],
+        ["F1 Score", str(hybrid_metrics.get("f1_score", "N/A")), "2PR / (P + R)"],
+    ]
+    metric_table = Table(metric_rows, colWidths=[180, 130, 170])
+    metric_table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#f0f4ff")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), PRIMARY),
+        ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#e2e8f0")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(metric_table)
+    story.append(Spacer(1, 0.25 * cm))
+
+    passed_rules = len([r for r in hybrid_rules if r.get("status") == "PASS"])
+    failed_rules = len([r for r in hybrid_rules if r.get("status") == "FAIL"])
+    mandatory_failed = len([r for r in hybrid_rules if r.get("status") == "FAIL" and r.get("severity") == "mandatory"])
+    summary_table = Table(
+        [[f"Rules Evaluated: {len(hybrid_rules)}", f"Passed: {passed_rules}", f"Failed: {failed_rules}", f"Mandatory Violations: {mandatory_failed}"]],
+        colWidths=[120, 90, 90, 170],
+    )
+    summary_table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#f8fafc")),
+        ("TEXTCOLOR", (0, 0), (-1, -1), HexColor("#1e293b")),
+        ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#e2e8f0")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 0.5 * cm))
+    story.append(HRFlowable(width="100%", color=PRIMARY_LIGHT, thickness=1))
+    story.append(Spacer(1, 0.5 * cm))
+
+    story.append(HRFlowable(width="100%", color=PRIMARY_LIGHT, thickness=1))
+    story.append(Spacer(1, 0.5 * cm))
+
     if results:
         story.append(Paragraph("Detailed Test Results", styles["SectionHeading"]))
         story.append(Spacer(1, 0.2*cm))
@@ -379,6 +442,14 @@ def export_hybrid_audit_csv(audit_data: dict, output_path: str) -> str:
                 "selection_rate_min",
                 "selection_rate_max",
                 "row_count",
+                "tp",
+                "tn",
+                "fp",
+                "fn",
+                "precision",
+                "recall",
+                "f1_score",
+                "classification_accuracy",
             ],
         )
         writer.writeheader()
@@ -404,6 +475,14 @@ def export_hybrid_audit_csv(audit_data: dict, output_path: str) -> str:
                     "selection_rate_min": metrics.get("selection_rate_min"),
                     "selection_rate_max": metrics.get("selection_rate_max"),
                     "row_count": metrics.get("row_count"),
+                    "tp": metrics.get("tp"),
+                    "tn": metrics.get("tn"),
+                    "fp": metrics.get("fp"),
+                    "fn": metrics.get("fn"),
+                    "precision": metrics.get("precision"),
+                    "recall": metrics.get("recall"),
+                    "f1_score": metrics.get("f1_score"),
+                    "classification_accuracy": metrics.get("classification_accuracy"),
                 }
             )
     return output_path

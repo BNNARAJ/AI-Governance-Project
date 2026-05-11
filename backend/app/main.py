@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse
 import os
 import shutil
 import json
+import asyncio
 from typing import List, Optional, Any
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -12,6 +13,7 @@ import tempfile
 import zipfile
 import hashlib
 import yaml
+from collections import deque
 
 load_dotenv()
 
@@ -102,6 +104,72 @@ audit_history = []
 compliance_policies = []
 last_audit_result = None  # Store full results for report generation
 rule_extraction_cache: dict[str, list[dict[str, Any]]] = {}
+
+# --- Real-time Monitoring State ---
+monitor_events: deque[dict[str, Any]] = deque(maxlen=300)
+monitor_clients: list[asyncio.Queue] = []
+monitor_state: dict[str, Any] = {
+    "run_id": None,
+    "status": "idle",  # idle | running | completed | failed
+    "stage": "idle",
+    "progress": 0,
+    "message": "No audit running.",
+    "started_at": None,
+    "updated_at": datetime.utcnow().isoformat(),
+    "last_error": None,
+    "latest_summary": None,
+}
+
+
+def _publish_monitor_event(event_type: str, payload: dict[str, Any]) -> None:
+    event = {
+        "type": event_type,
+        "timestamp": datetime.utcnow().isoformat(),
+        **payload,
+    }
+    monitor_events.append(event)
+    for q in list(monitor_clients):
+        try:
+            q.put_nowait(event)
+        except Exception:
+            # Drop stale client queues.
+            try:
+                monitor_clients.remove(q)
+            except ValueError:
+                pass
+
+
+def _update_monitor_state(
+    *,
+    status: Optional[str] = None,
+    stage: Optional[str] = None,
+    progress: Optional[int] = None,
+    message: Optional[str] = None,
+    run_id: Optional[str] = None,
+    last_error: Optional[str] = None,
+    latest_summary: Optional[dict[str, Any]] = None,
+) -> None:
+    if run_id is not None:
+        monitor_state["run_id"] = run_id
+    if status is not None:
+        monitor_state["status"] = status
+    if stage is not None:
+        monitor_state["stage"] = stage
+    if progress is not None:
+        monitor_state["progress"] = max(0, min(int(progress), 100))
+    if message is not None:
+        monitor_state["message"] = message
+    if last_error is not None:
+        monitor_state["last_error"] = last_error
+    if latest_summary is not None:
+        monitor_state["latest_summary"] = latest_summary
+    monitor_state["updated_at"] = datetime.utcnow().isoformat()
+    _publish_monitor_event(
+        "state_update",
+        {
+            "state": dict(monitor_state),
+        },
+    )
 
 # --- Auth Endpoints ---
 @app.post("/auth/login")
@@ -365,6 +433,36 @@ async def upload_fairness_data(file: UploadFile = File(...)):
 async def root():
     return {"message": "AI Governance Agent API is running"}
 
+@app.get("/monitor/status")
+async def monitor_status():
+    return {
+        "state": monitor_state,
+        "recent_events": list(monitor_events)[-25:],
+    }
+
+@app.get("/monitor/stream")
+async def monitor_stream():
+    queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+    monitor_clients.append(queue)
+
+    async def event_generator():
+        # Send a snapshot first so new subscribers render immediately.
+        snapshot = {"type": "snapshot", "timestamp": datetime.utcnow().isoformat(), "state": dict(monitor_state)}
+        yield f"data: {json.dumps(snapshot)}\n\n"
+        try:
+            while True:
+                event = await queue.get()
+                yield f"data: {json.dumps(event)}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            try:
+                monitor_clients.remove(queue)
+            except ValueError:
+                pass
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 @app.post("/upload-regulations")
 async def upload_regulations(files: List[UploadFile] = File(...)):
     upload_dir = os.path.join(project_dir, "uploads", "regulations")
@@ -485,16 +583,10 @@ async def run_audit():
         model_type = _resolve_model_type()
         run_behavioral = model_type in {"llm", "unknown"}
         run_deterministic = model_type in {"ml", "unknown"}
-        
-        # 1. Retrieve knowledge from RAG system
         rag_warning = None
-        try:
-            context = rag_service.query_regulations("compliance and fairness rules", n_results=5)
-        except Exception as e:
-            context = "No regulations indexed yet. Using default governance baseline thresholds."
-            rag_warning = f"RAG retrieval fallback used: {e}"
-
-        # 2. Extract strict machine-readable governance rules from policy context.
+        
+        # === PHASE 2: AGENTIC EXTRACTOR ===
+        # Query RAG + Extract fairness rules using intelligent agent
         default_rules = [
             {
                 "metric_name": "disparate_impact_ratio",
@@ -553,33 +645,57 @@ async def run_audit():
 
         extracted_rules = default_rules
         rules_source = "default_fallback"
+        phase2_status = {"extracted_rules_count": 0, "regulations_used": [], "extraction_status": "not_run"}
+        
         cache_key = hashlib.sha256(
             json.dumps(
                 {
-                    "context": context,
+                    "model_desc": current_config.model_description or "",
                     "variance_factors": current_config.variance_factors or [],
+                    "model_type": model_type,
                 },
                 sort_keys=True,
             ).encode("utf-8")
         ).hexdigest()
+        
         if cache_key in rule_extraction_cache:
             extracted_rules = rule_extraction_cache[cache_key]
             rules_source = "cache"
+            phase2_status["extraction_status"] = "cache_hit"
         else:
             gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             try:
                 if gemini_key and "your_actual_gemini_api_key" not in gemini_key:
-                    rules_raw = await gemini_service.extract_governance_rules(context, current_config.variance_factors or [])
-                    rules_clean = rules_raw.strip().replace("```json", "").replace("```", "").strip()
-                    rules_json = json.loads(rules_clean)
-                    if isinstance(rules_json, list):
-                        strict_rules = _normalize_rules(rules_json)
-                        if strict_rules:
-                            extracted_rules = strict_rules
-                            rules_source = "llm_extraction"
+                    # Phase 2: Use agentic extractor (queries RAG + extracts rules)
+                    print("[Phase 2] Invoking agentic extractor to query regulations and extract rules...")
+                    phase2_result = await gemini_service.extract_rules_from_regulations(
+                        model_description=current_config.model_description or "General ML model",
+                        variance_factors=current_config.variance_factors or ["general_fairness"],
+                        model_type=model_type
+                    )
+                    
+                    phase2_status = {
+                        "extracted_rules_count": len(phase2_result.get("rules", [])),
+                        "regulations_used": phase2_result.get("regulations_used", []),
+                        "extraction_status": phase2_result.get("extraction_status", "unknown"),
+                        "error": phase2_result.get("error")
+                    }
+                    
+                    strict_rules = _normalize_rules(phase2_result.get("rules", []))
+                    if strict_rules:
+                        extracted_rules = strict_rules
+                        rules_source = "phase2_agentic"
+                    else:
+                        extracted_rules = default_rules
+                        rules_source = "phase2_agentic_fallback"
+                        
                 rule_extraction_cache[cache_key] = extracted_rules
             except Exception as e:
-                print(f"Governance rule extraction fallback used: {e}")
+                print(f"[Phase 2] Error in agentic extraction: {e}")
+                import traceback
+                traceback.print_exc()
+                phase2_status["extraction_status"] = "error"
+                phase2_status["error"] = str(e)
 
         desired_n = 6
         try:
@@ -1157,6 +1273,7 @@ async def run_audit():
                 "rule_source": rules_source,
                 "ml_readiness": ml_readiness,
             },
+            "phase_2_agentic_extraction": phase2_status,  # Phase 2: Agentic Extractor results
         }
 
         if "llm_warning" in locals():

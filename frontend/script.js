@@ -339,6 +339,9 @@ function setupAuditForm() {
 
         const manualFeaturesStr = document.getElementById('manual-features').value;
         const manualFeaturesList = manualFeaturesStr ? manualFeaturesStr.split(',').map(f => f.trim()).filter(f => f) : null;
+        const driftEnabled = document.getElementById('drift-enabled')?.checked ?? true;
+        const driftBaselineFile = (document.getElementById('drift-baseline-file')?.value || '').trim() || null;
+        const driftCurrentFile = (document.getElementById('drift-current-file')?.value || '').trim() || null;
 
         const config = {
             model_description: desc,
@@ -349,7 +352,10 @@ function setupAuditForm() {
             api_url: document.getElementById('api-url').value || null,
             api_key: document.getElementById('api-key').value || null,
             local_file_path: uploadedModelName,
-            custom_feature_names: manualFeaturesList
+            custom_feature_names: manualFeaturesList,
+            drift_enabled: driftEnabled,
+            drift_baseline_file: driftBaselineFile,
+            drift_current_file: driftCurrentFile
         };
 
         // Step 1: Configure
@@ -743,6 +749,52 @@ function animateGauges() {
 // ========== RENDER RESULTS ==========
 function renderResults(data) {
     const summary = data.summary;
+    const hybrid = data.hybrid_validation || {};
+    const drift = data.drift_detection || {};
+    const metrics = hybrid.fairness_metrics || {};
+    const overallHybrid = hybrid.overall_status || 'N/A';
+    const deterministicRan = !!(summary && summary.deterministic_phase_executed);
+    const ruleResults = Array.isArray(hybrid.rule_results) ? hybrid.rule_results : [];
+    const passedRules = ruleResults.filter(r => r && r.status === 'PASS').length;
+    const failedRules = ruleResults.filter(r => r && r.status === 'FAIL').length;
+    const mandatoryFails = ruleResults.filter(r => r && r.status === 'FAIL' && r.severity === 'mandatory').length;
+    const driftFeatures = Array.isArray(drift.feature_results) ? drift.feature_results : [];
+    const driftStatus = String(drift.status || 'SKIPPED').toUpperCase();
+    const byMetric = (metricName) => ruleResults.filter(r => String(r.metric_name || '').trim() === metricName);
+    const statusPill = (status) => {
+        const s = String(status || '').toUpperCase();
+        const cls = s === 'PASS' ? 'pass' : 'fail';
+        return `<span class="rule-status-pill ${cls}">${escapeHtml(s || 'N/A')}</span>`;
+    };
+    const ruleRows = (metricName) => {
+        const rows = byMetric(metricName);
+        if (!rows.length) {
+            return `<tr><td colspan="6" class="muted">No rule checks found for this metric.</td></tr>`;
+        }
+        return rows.map((r, i) => `
+            <tr>
+                <td>${i + 1}</td>
+                <td>${escapeHtml(String(r.operator || '-'))}</td>
+                <td>${r.threshold_min ?? 'N/A'}</td>
+                <td>${r.threshold_max ?? 'N/A'}</td>
+                <td>${r.actual_value ?? 'N/A'}</td>
+                <td>${statusPill(r.status)}</td>
+            </tr>
+        `).join('');
+    };
+    const driftRows = () => {
+        if (!driftFeatures.length) {
+            return `<tr><td colspan="4" class="muted">No drift feature rows available.</td></tr>`;
+        }
+        return driftFeatures.map((r, i) => `
+            <tr>
+                <td>${i + 1}</td>
+                <td>${escapeHtml(String(r.feature || '-'))}</td>
+                <td>${r.psi ?? 'N/A'}</td>
+                <td><span class="drift-level ${escapeHtml(String(r.drift_level || '').toLowerCase())}">${escapeHtml(String(r.drift_level || 'n/a').toUpperCase())}</span></td>
+            </tr>
+        `).join('');
+    };
 
     const avg_f = summary.avg_fairness;
     const avg_c = summary.avg_compliance;
@@ -766,6 +818,160 @@ function renderResults(data) {
                 ${createGauge(avg_a, 'Accuracy')}
             </div>
             <p class="muted">Factors tested: ${summary.variance_factors.map(f => escapeHtml(f)).join(', ')}</p>
+        </div>
+
+        <div class="panel glass hybrid-panel">
+            <div class="hybrid-header">
+                <h2><i data-lucide="scale"></i> Hybrid Validation Report</h2>
+                <span class="hybrid-badge ${String(overallHybrid).toUpperCase() === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(String(overallHybrid).toUpperCase())}</span>
+            </div>
+            <p class="muted">
+                Deterministic engine: ${deterministicRan ? 'Executed' : 'Skipped'}.<br>
+                ${deterministicRan ? 'Metrics below compare observed fairness against extracted policy rules.' : 'Deterministic metrics unavailable for this run.'}
+            </p>
+
+            ${deterministicRan ? `
+                <div class="hybrid-metric-stack">
+                    <article class="hybrid-metric-card detailed">
+                        <div class="hybrid-metric-top">
+                            <div>
+                                <div class="hybrid-metric-label"><h2>Disparate Impact Ratio</h2></div>
+                                <div class="hybrid-metric-value">${metrics.disparate_impact_ratio ?? 'N/A'}</div>
+                                <div class="hybrid-metric-hint">Ratio of min selection rate to max selection rate. Typical target: >= 0.8.</div>
+                            </div>
+                        </div>
+                        <div class="metric-table-wrap">
+                            <table class="metric-detail-table">
+                                <thead>
+                                    <tr><th>Rule</th><th>Operator</th><th>Min</th><th>Max</th><th>Actual</th><th>Status</th></tr>
+                                </thead>
+                                <tbody>${ruleRows('disparate_impact_ratio')}</tbody>
+                            </table>
+                        </div>
+                    </article>
+
+                    <article class="hybrid-metric-card detailed">
+                        <div class="hybrid-metric-top">
+                            <div>
+                                <div class="hybrid-metric-label"><h2>Demographic Parity Difference</h2></div>
+                                <div class="hybrid-metric-value">${metrics.demographic_parity_difference ?? 'N/A'}</div>
+                                <div class="hybrid-metric-hint">Absolute gap in positive rates across groups. Typical target: <= 0.1.</div>
+                            </div>
+                        </div>
+                        <div class="metric-table-wrap">
+                            <table class="metric-detail-table">
+                                <thead>
+                                    <tr><th>Rule</th><th>Operator</th><th>Min</th><th>Max</th><th>Actual</th><th>Status</th></tr>
+                                </thead>
+                                <tbody>${ruleRows('demographic_parity_difference')}</tbody>
+                            </table>
+                        </div>
+                    </article>
+
+                    <article class="hybrid-metric-card detailed">
+                        <div class="hybrid-metric-top">
+                            <div>
+                                <div class="hybrid-metric-label"><h2>Selection Rates (Min / Max)</h2></div>
+                                <div class="hybrid-metric-value">${metrics.selection_rate_min ?? 'N/A'} / ${metrics.selection_rate_max ?? 'N/A'}</div>
+                                <div class="hybrid-metric-hint">Observed positive prediction rates for the least/most selected groups.</div>
+                            </div>
+                        </div>
+                        <div class="metric-table-wrap">
+                            <table class="metric-detail-table">
+                                <thead>
+                                    <tr><th>Measure</th><th>Value</th><th>Description</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>Selection Rate Min</td><td>${metrics.selection_rate_min ?? 'N/A'}</td><td>Lowest group approval/positive rate</td></tr>
+                                    <tr><td>Selection Rate Max</td><td>${metrics.selection_rate_max ?? 'N/A'}</td><td>Highest group approval/positive rate</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+
+                    <article class="hybrid-metric-card detailed">
+                        <div class="hybrid-metric-top">
+                            <div>
+                                <div class="hybrid-metric-label"><h2>Sample Size</h2></div>
+                                <div class="hybrid-metric-value">${metrics.row_count ?? 'N/A'}</div>
+                                <div class="hybrid-metric-hint">Total rows used by the deterministic fairness engine.</div>
+                            </div>
+                        </div>
+                        <div class="metric-table-wrap">
+                            <table class="metric-detail-table">
+                                <thead>
+                                    <tr><th>Field</th><th>Value</th><th>Meaning</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>Rows Used</td><td>${metrics.row_count ?? 'N/A'}</td><td>Number of records in fairness dataset evaluated in this run</td></tr>
+                                    <tr><td>Source</td><td>${escapeHtml(summary.deterministic_phase_executed ? 'Deterministic Engine' : 'N/A')}</td><td>Computed from uploaded CSV or generated dummy data</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+
+                    <article class="hybrid-metric-card detailed">
+                        <div class="hybrid-metric-top">
+                            <div>
+                                <div class="hybrid-metric-label"><h2>Confusion Metrics</h2></div>
+                                <div class="hybrid-metric-hint">Model quality context from deterministic dataset predictions.</div>
+                            </div>
+                        </div>
+                        <div class="metric-table-wrap">
+                            <table class="metric-detail-table">
+                                <thead>
+                                    <tr><th>Metric</th><th>Value</th><th>Description</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>True Positive (TP)</td><td>${metrics.tp ?? 'N/A'}</td><td>Actual 1 predicted as 1</td></tr>
+                                    <tr><td>True Negative (TN)</td><td>${metrics.tn ?? 'N/A'}</td><td>Actual 0 predicted as 0</td></tr>
+                                    <tr><td>False Positive (FP)</td><td>${metrics.fp ?? 'N/A'}</td><td>Actual 0 predicted as 1</td></tr>
+                                    <tr><td>False Negative (FN)</td><td>${metrics.fn ?? 'N/A'}</td><td>Actual 1 predicted as 0</td></tr>
+                                    <tr><td>Precision</td><td>${metrics.precision ?? 'N/A'}</td><td>TP / (TP + FP)</td></tr>
+                                    <tr><td>Recall</td><td>${metrics.recall ?? 'N/A'}</td><td>TP / (TP + FN)</td></tr>
+                                    <tr><td>F1 Score</td><td>${metrics.f1_score ?? 'N/A'}</td><td>Harmonic mean of precision and recall</td></tr>
+                                    <tr><td>Classification Accuracy</td><td>${metrics.classification_accuracy ?? 'N/A'}</td><td>(TP + TN) / Total</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+                </div>
+
+                <div class="hybrid-rule-summary">
+                    <div class="hybrid-rule-chip">Rules Evaluated: <strong>${ruleResults.length}</strong></div>
+                    <div class="hybrid-rule-chip pass">Passed: <strong>${passedRules}</strong></div>
+                    <div class="hybrid-rule-chip fail">Failed: <strong>${failedRules}</strong></div>
+                    <div class="hybrid-rule-chip fail">Mandatory Violations: <strong>${mandatoryFails}</strong></div>
+                </div>
+            ` : `
+                <div class="hybrid-empty-note">
+                    No deterministic fairness metrics were computed. If you are auditing an ML model, use upload/features mode and rerun.
+                </div>
+            `}
+        </div>
+
+        <div class="panel glass drift-panel">
+            <div class="drift-header">
+                <h2><i data-lucide="radar"></i> Drift Detection Report</h2>
+                <span class="drift-badge ${driftStatus === 'PASS' ? 'pass' : (driftStatus === 'WARN' ? 'warn' : (driftStatus === 'FAIL' ? 'fail' : 'muted'))}">${escapeHtml(driftStatus)}</span>
+            </div>
+            <p class="muted">Monitors data distribution shift between baseline and current dataset using PSI.</p>
+
+            <div class="drift-summary-grid">
+                <div class="drift-kpi"><label>Overall PSI</label><strong>${drift.overall_psi ?? 'N/A'}</strong></div>
+                <div class="drift-kpi"><label>Drifted Features</label><strong>${drift.drifted_features ?? 0}</strong></div>
+                <div class="drift-kpi"><label>Total Features Compared</label><strong>${drift.total_features ?? 0}</strong></div>
+            </div>
+
+            <div class="metric-table-wrap">
+                <table class="metric-detail-table">
+                    <thead>
+                        <tr><th>#</th><th>Feature</th><th>PSI</th><th>Drift Level</th></tr>
+                    </thead>
+                    <tbody>${driftRows()}</tbody>
+                </table>
+            </div>
+            ${Array.isArray(drift.notes) && drift.notes.length ? `<p class="muted" style="margin-top:0.6rem">${escapeHtml(drift.notes.join(' '))}</p>` : ''}
         </div>
 
         <div class="results-actions">

@@ -59,6 +59,7 @@ class FairnessEngine:
         )
 
     def compute_metrics(self, dataset: FairnessDataset) -> dict[str, float]:
+        y_true = np.array(dataset.true_labels)
         y_pred = np.array(dataset.predictions)
         groups = np.array(dataset.sensitive_feature)
 
@@ -77,11 +78,22 @@ class FairnessEngine:
         disparate_impact_ratio = (min_rate / max_rate) if max_rate > 0 else 0.0
         dp_diff = float(
             demographic_parity_difference(
-                y_true=np.array(dataset.true_labels),
+                y_true=y_true,
                 y_pred=y_pred,
                 sensitive_features=groups,
             )
         )
+
+        # Confusion-matrix derived metrics
+        tp = int(np.sum((y_true == 1) & (y_pred == 1)))
+        tn = int(np.sum((y_true == 0) & (y_pred == 0)))
+        fp = int(np.sum((y_true == 0) & (y_pred == 1)))
+        fn = int(np.sum((y_true == 1) & (y_pred == 0)))
+
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        accuracy = (tp + tn) / max(len(y_pred), 1)
+        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
 
         return {
             "disparate_impact_ratio": round(disparate_impact_ratio, 4),
@@ -89,6 +101,14 @@ class FairnessEngine:
             "selection_rate_min": round(min_rate, 4),
             "selection_rate_max": round(max_rate, 4),
             "row_count": len(dataset.predictions),
+            "tp": tp,
+            "tn": tn,
+            "fp": fp,
+            "fn": fn,
+            "precision": round(precision, 4),
+            "recall": round(recall, 4),
+            "f1_score": round(f1, 4),
+            "classification_accuracy": round(accuracy, 4),
         }
 
     def evaluate_rules(self, rules: list[dict[str, Any]], metrics: dict[str, float]) -> list[dict[str, Any]]:
@@ -106,8 +126,12 @@ class FairnessEngine:
             status = False
             if op == ">=" and tmin is not None:
                 status = float(value) >= float(tmin)
-            elif op == "<=" and tmin is not None:
-                status = float(value) <= float(tmin)
+            elif op == "<=":
+                # Check threshold_min first, then threshold_max if min is None
+                if tmin is not None:
+                    status = float(value) <= float(tmin)
+                elif tmax is not None:
+                    status = float(value) <= float(tmax)
             elif op == "between" and tmin is not None and tmax is not None:
                 status = float(tmin) <= float(value) <= float(tmax)
 

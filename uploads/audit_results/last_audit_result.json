@@ -1,0 +1,89 @@
+{
+  "status": "Audit Complete",
+  "summary": {
+    "timestamp": "2026-05-11T16:04:42.235000",
+    "model_description": "loan eligibility",
+    "variance_factors": [
+      "Gender"
+    ],
+    "avg_fairness": 0.0,
+    "avg_compliance": 0.0,
+    "avg_accuracy": 0.0,
+    "test_count": 0,
+    "policy_violations": 0,
+    "hybrid_overall_status": "PASS",
+    "model_type_resolved": "ml",
+    "behavioral_phase_executed": false,
+    "deterministic_phase_executed": true,
+    "ml_ingestion_level": "level_1_mlflow_bundle",
+    "assurance_level": "full"
+  },
+  "results": [],
+  "policy_violations": 0,
+  "hybrid_validation": {
+    "overall_status": "PASS",
+    "fairness_metrics": {
+      "disparate_impact_ratio": 0.8927,
+      "demographic_parity_difference": 0.0582,
+      "selection_rate_min": 0.4839,
+      "selection_rate_max": 0.5421,
+      "row_count": 200,
+      "tp": 87,
+      "tn": 71,
+      "fp": 16,
+      "fn": 26,
+      "precision": 0.8447,
+      "recall": 0.7699,
+      "f1_score": 0.8056,
+      "classification_accuracy": 0.79
+    },
+    "rule_results": [
+      {
+        "metric_name": "disparate_impact_ratio",
+        "sensitive_feature": "general",
+        "operator": ">=",
+        "threshold_min": 0.8,
+        "threshold_max": null,
+        "source_excerpt": "Default fairness baseline (80% rule).",
+        "confidence": 0.7,
+        "severity": "advisory",
+        "actual_value": 0.8927,
+        "status": "PASS"
+      },
+      {
+        "metric_name": "demographic_parity_difference",
+        "sensitive_feature": "general",
+        "operator": "<=",
+        "threshold_min": 0.1,
+        "threshold_max": null,
+        "source_excerpt": "Default parity baseline.",
+        "confidence": 0.7,
+        "severity": "advisory",
+        "actual_value": 0.0582,
+        "status": "PASS"
+      }
+    ]
+  },
+  "execution_plan": {
+    "model_type": "ml",
+    "behavioral_phase_executed": false,
+    "deterministic_phase_executed": true,
+    "rule_source": "default_fallback",
+    "ml_readiness": {
+      "ml_ingestion_level": "level_1_mlflow_bundle",
+      "assurance_level": "full",
+      "limited_assurance": false,
+      "notes": [],
+      "has_profile": true,
+      "has_preprocessor": true,
+      "has_api_schema": false
+    }
+  },
+  "phase_2_agentic_extraction": {
+    "extracted_rules_count": 0,
+    "regulations_used": [],
+    "extraction_status": "error",
+    "error": "'GeminiService' object has no attribute 'extract_rules_from_regulations'"
+  },
+  "csv_export_path": "C:\\Users\\smita\\Governance\\AI-Governance-Project\\uploads\\audit_results\\hybrid_audit_20260511_160442.csv"
+}

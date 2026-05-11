@@ -2826,6 +2826,384 @@ select:focus {
     box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
 }
 
+/* Hybrid Validation Report */
+.hybrid-panel {
+    margin-top: 1rem;
+    padding: 1.2rem;
+}
+
+.hybrid-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.45rem;
+}
+
+.hybrid-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 76px;
+    padding: 0.28rem 0.78rem;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    background: rgba(15, 23, 42, 0.04);
+    color: var(--text-secondary);
+}
+
+.hybrid-badge.pass {
+    color: #14532d;
+    border-color: rgba(48, 209, 88, 0.35);
+    background: rgba(48, 209, 88, 0.12);
+}
+
+.hybrid-badge.fail {
+    color: #7f1d1d;
+    border-color: rgba(255, 59, 48, 0.35);
+    background: rgba(255, 59, 48, 0.1);
+}
+
+.hybrid-metric-grid {
+    margin-top: 0.9rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+    gap: 0.8rem;
+}
+
+.hybrid-metric-stack {
+    margin-top: 0.95rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.95rem;
+}
+
+#audit-summary .hybrid-panel .hybrid-layout-grid {
+    display: grid !important;
+    grid-template-columns: 2fr 1fr;
+    gap: 1rem;
+    margin-top: 0.9rem;
+}
+
+#audit-summary .hybrid-panel .hybrid-metric-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(220px, 1fr)) !important;
+    gap: 0.9rem !important;
+}
+
+.hybrid-metric-card {
+    background: #ffffff;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 12px;
+    padding: 1rem 1.05rem;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+    min-height: 116px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.hybrid-metric-card.detailed {
+    min-height: unset;
+    gap: 0.75rem;
+}
+
+.hybrid-metric-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+
+.hybrid-metric-label {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.hybrid-metric-value {
+    margin-top: 0.4rem;
+    font-size: 1.32rem;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.01em;
+}
+
+.hybrid-metric-hint {
+    margin-top: 0.35rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+.metric-table-wrap {
+    margin-top: 0.15rem;
+}
+
+.metric-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 10px;
+    overflow: hidden;
+    font-size: 0.82rem;
+    background: #fff;
+}
+
+.metric-detail-table th,
+.metric-detail-table td {
+    text-align: left;
+    padding: 0.52rem 0.55rem;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.07);
+}
+
+.metric-detail-table th {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    background: rgba(15, 23, 42, 0.03);
+    font-weight: 700;
+}
+
+.metric-detail-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.rule-status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 60px;
+    padding: 0.16rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    border: 1px solid rgba(15, 23, 42, 0.15);
+    color: var(--text-secondary);
+    background: rgba(15, 23, 42, 0.05);
+}
+
+.rule-status-pill.pass {
+    color: #14532d;
+    border-color: rgba(48, 209, 88, 0.4);
+    background: rgba(48, 209, 88, 0.12);
+}
+
+.rule-status-pill.fail {
+    color: #7f1d1d;
+    border-color: rgba(255, 59, 48, 0.4);
+    background: rgba(255, 59, 48, 0.1);
+}
+
+.hybrid-rule-summary {
+    margin-top: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+}
+
+.hybrid-rule-chip {
+    background: rgba(15, 23, 42, 0.05);
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    color: var(--text-secondary);
+    border-radius: 999px;
+    font-size: 0.77rem;
+    padding: 0.33rem 0.72rem;
+}
+
+.hybrid-rule-chip.pass {
+    color: #14532d;
+    border-color: rgba(48, 209, 88, 0.35);
+    background: rgba(48, 209, 88, 0.12);
+}
+
+.hybrid-rule-chip.fail {
+    color: #7f1d1d;
+    border-color: rgba(255, 59, 48, 0.35);
+    background: rgba(255, 59, 48, 0.1);
+}
+
+.hybrid-empty-note {
+    margin-top: 0.9rem;
+    padding: 0.8rem 0.95rem;
+    border: 1px dashed rgba(15, 23, 42, 0.18);
+    border-radius: 10px;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+    background: rgba(255, 255, 255, 0.7);
+}
+
+.drift-panel {
+    margin-top: 1rem;
+    padding: 1.2rem;
+}
+
+.drift-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.35rem;
+}
+
+.drift-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 84px;
+    padding: 0.28rem 0.78rem;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    background: rgba(15, 23, 42, 0.04);
+}
+
+.drift-badge.pass {
+    color: #14532d;
+    border-color: rgba(48, 209, 88, 0.35);
+    background: rgba(48, 209, 88, 0.12);
+}
+
+.drift-badge.warn {
+    color: #78350f;
+    border-color: rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.12);
+}
+
+.drift-badge.fail {
+    color: #7f1d1d;
+    border-color: rgba(255, 59, 48, 0.35);
+    background: rgba(255, 59, 48, 0.1);
+}
+
+.drift-badge.muted {
+    color: var(--text-secondary);
+}
+
+.drift-summary-grid {
+    margin-top: 0.75rem;
+    margin-bottom: 0.75rem;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+    gap: 0.7rem;
+}
+
+.drift-kpi {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 10px;
+    background: #fff;
+    padding: 0.75rem 0.85rem;
+}
+
+.drift-kpi label {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.drift-kpi strong {
+    display: block;
+    margin-top: 0.3rem;
+    font-size: 1.15rem;
+}
+
+.drift-level {
+    display: inline-flex;
+    min-width: 78px;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 0.16rem 0.5rem;
+    font-size: 0.69rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    border: 1px solid rgba(15, 23, 42, 0.14);
+}
+
+.drift-level.low {
+    color: #14532d;
+    border-color: rgba(48, 209, 88, 0.35);
+    background: rgba(48, 209, 88, 0.12);
+}
+
+.drift-level.moderate {
+    color: #78350f;
+    border-color: rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.12);
+}
+
+.drift-level.high {
+    color: #7f1d1d;
+    border-color: rgba(255, 59, 48, 0.35);
+    background: rgba(255, 59, 48, 0.1);
+}
+
+#audit-summary .hybrid-panel .hybrid-criteria-card {
+    background: #ffffff;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 12px;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+    padding: 1rem;
+}
+
+#audit-summary .hybrid-panel .hybrid-criteria-card h3 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-bottom: 0.8rem;
+}
+
+#audit-summary .hybrid-panel .hybrid-criteria-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.83rem;
+}
+
+#audit-summary .hybrid-panel .hybrid-criteria-table th,
+#audit-summary .hybrid-panel .hybrid-criteria-table td {
+    text-align: left;
+    padding: 0.52rem 0.45rem;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+#audit-summary .hybrid-panel .hybrid-criteria-table th {
+    color: var(--text-muted);
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+}
+
+@media (max-width: 768px) {
+    #audit-summary .hybrid-panel .hybrid-layout-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .hybrid-metric-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .metric-detail-table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+
+    .drift-summary-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Login */
 .login-card {
     background: #ffffff;

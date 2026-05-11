@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Governance Agent | Dashboard</title>
     <meta name="description" content="Generalized AI Governance Agent — audit any AI model for bias, fairness, and regulatory compliance across any industry.">
-    <link rel="stylesheet" href="style.css?v=20260410a">
-    <link rel="stylesheet" href="theme-light.css?v=20260410a">
+    <link rel="stylesheet" href="style.css?v=20260508b">
+    <link rel="stylesheet" href="theme-light.css?v=20260508b">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -267,6 +267,29 @@
                             </div>
                         </div>
 
+                        <div class="form-group">
+                            <label>Drift Detection (Optional)</label>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label style="font-size:0.8rem">
+                                        <input type="checkbox" id="drift-enabled" checked style="margin-right:0.45rem">
+                                        Enable drift detection
+                                    </label>
+                                    <small class="muted">Drift compares baseline vs current dataset distributions using PSI.</small>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label style="font-size:0.8rem">Baseline CSV Path</label>
+                                    <input type="text" id="drift-baseline-file" placeholder="e.g. C:\\data\\baseline.csv">
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label style="font-size:0.8rem">Current CSV Path</label>
+                                    <input type="text" id="drift-current-file" placeholder="e.g. C:\\data\\current.csv">
+                                </div>
+                            </div>
+                        </div>
+
                         <button type="submit" class="btn-primary pulse"><i data-lucide="play"></i> Launch Governance Audit</button>
                     </form>
                 </div>
@@ -365,6 +388,6 @@
         </main>
     </div>
 
-    <script src="script.js?v=20260410a"></script>
+    <script src="script.js?v=20260508b"></script>
 </body>
 </html>
