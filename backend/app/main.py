@@ -77,6 +77,7 @@ class AuditConfig(BaseModel):
     api_mode: str = "prompt"  # "prompt" or "features"
     api_url: Optional[str] = None
     api_key: Optional[str] = None
+    api_model_name: Optional[str] = None
     local_file_path: Optional[str] = None
     custom_feature_names: Optional[List[str]] = None
     fairness_data_mode: str = "dummy"  # "dummy" | "upload"
@@ -983,19 +984,35 @@ async def run_audit():
                                 merged = model_service.apply_variance(profile, merged, current_config.variance_factors[0], i)
                             resp = requests.post(current_config.api_url, headers=headers, json=merged, timeout=30)
                         else:
-                            resp = requests.post(
-                                current_config.api_url,
-                                headers=headers,
-                                json={"prompt": test.get("prompt", "")},
-                                timeout=30,
-                            )
-                        try:
-                            j = resp.json()
-                            target_response = j.get("prediction") if isinstance(j, dict) else str(j)
-                            if not target_response:
-                                target_response = str(j)
-                        except Exception:
-                            target_response = str(resp.text)
+                            is_openai_compat = current_config.api_url and ("openrouter.ai" in current_config.api_url or "openai.com" in current_config.api_url or "groq.com" in current_config.api_url or "/v1/chat/completions" in current_config.api_url)
+                            
+                            if is_openai_compat:
+                                payload = {
+                                    "model": current_config.api_model_name or "meta-llama/llama-3-8b-instruct:free",
+                                    "messages": [{"role": "user", "content": test.get("prompt", "")}]
+                                }
+                                resp = requests.post(current_config.api_url, headers=headers, json=payload, timeout=30)
+                                try:
+                                    j = resp.json()
+                                    target_response = j.get("choices", [{}])[0].get("message", {}).get("content")
+                                    if not target_response:
+                                        target_response = str(j)
+                                except Exception:
+                                    target_response = str(resp.text)
+                            else:
+                                resp = requests.post(
+                                    current_config.api_url,
+                                    headers=headers,
+                                    json={"prompt": test.get("prompt", "")},
+                                    timeout=30,
+                                )
+                                try:
+                                    j = resp.json()
+                                    target_response = j.get("prediction") if isinstance(j, dict) else str(j)
+                                    if not target_response:
+                                        target_response = str(j)
+                                except Exception:
+                                    target_response = str(resp.text)
                     except Exception as e:
                         target_response = f"API Error calling target model: {str(e)}"
                 else:

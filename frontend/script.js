@@ -1,4 +1,4 @@
-﻿const API = 'http://localhost:8000';
+const API = 'http://localhost:8000';
 let authToken = null;
 let currentUser = null;
 let fairnessDataFilePath = null;
@@ -394,6 +394,7 @@ function setupAuditForm() {
             api_mode: document.getElementById('api-mode')?.value || 'prompt',
             api_url: document.getElementById('api-url').value || null,
             api_key: document.getElementById('api-key').value || null,
+            api_model_name: document.getElementById('api-model-name')?.value || null,
             local_file_path: uploadedModelName,
             custom_feature_names: manualFeaturesList,
             fairness_data_mode: document.getElementById('fairness-data-mode')?.value || 'dummy',
