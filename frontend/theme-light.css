@@ -1,0 +1,174 @@
+/* Light theme hard override loaded after style.css */
+
+:root {
+    --primary: #1976d2 !important;
+    --primary-hover: #1565c0 !important;
+    --bg: #f5f7fb !important;
+    --bg-surface: #ffffff !important;
+    --glass: #ffffff !important;
+    --glass-border: rgba(15, 23, 42, 0.10) !important;
+    --text: #1f2937 !important;
+    --text-muted: #6b7280 !important;
+    --accent: #22c55e !important;
+    --warning: #f59e0b !important;
+    --danger: #ef4444 !important;
+}
+
+body {
+    background: radial-gradient(900px 500px at 78% 12%, rgba(25, 118, 210, 0.08), transparent 55%),
+        radial-gradient(700px 450px at 20% 88%, rgba(99, 102, 241, 0.07), transparent 55%),
+        #f5f7fb !important;
+    color: #1f2937 !important;
+}
+
+body::after,
+.bg-blobs {
+    display: none !important;
+}
+
+.glass,
+.panel,
+.stat-card,
+.result-card,
+.login-card {
+    background: #ffffff !important;
+    border: 1px solid rgba(15, 23, 42, 0.10) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07) !important;
+}
+
+.glass::before,
+.panel::before,
+.stat-card::before,
+.stat-card::after,
+.dropzone::before,
+.nav-btn::before,
+.nav-btn::after {
+    display: none !important;
+}
+
+.sidebar {
+    background: #ffffff !important;
+    border-right: 1px solid rgba(15, 23, 42, 0.10) !important;
+    box-shadow: 8px 0 20px rgba(15, 23, 42, 0.04) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+.sidebar::after {
+    display: none !important;
+}
+
+.logo span,
+.panel h2,
+.view-header h1,
+.login-logo h1 {
+    color: #111827 !important;
+    -webkit-text-fill-color: #111827 !important;
+    background: none !important;
+}
+
+.nav-btn {
+    color: #6b7280 !important;
+    border-radius: 12px !important;
+}
+
+.nav-btn:hover {
+    background: #f3f6fb !important;
+    color: #1f2937 !important;
+    transform: none !important;
+}
+
+.nav-btn.active {
+    background: #eaf2ff !important;
+    color: #1976d2 !important;
+    border-left: 4px solid #1976d2 !important;
+    padding-left: calc(1rem - 4px) !important;
+    transform: none !important;
+}
+
+.nav-btn i {
+    color: currentColor !important;
+    transform: none !important;
+}
+
+.status-pill.online {
+    background: #e9f8ef !important;
+    color: #15803d !important;
+    border-color: #b7ebc5 !important;
+}
+
+.status-pill.offline {
+    background: #feecec !important;
+    color: #b91c1c !important;
+    border-color: #fecaca !important;
+}
+
+.btn-primary {
+    background: #1976d2 !important;
+    color: #ffffff !important;
+    box-shadow: 0 8px 16px rgba(25, 118, 210, 0.25) !important;
+    transform: none !important;
+}
+
+.btn-primary:hover {
+    background: #1565c0 !important;
+    transform: none !important;
+}
+
+.btn-secondary {
+    background: #ffffff !important;
+    color: #1f2937 !important;
+    border: 1px solid rgba(15, 23, 42, 0.15) !important;
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.05) !important;
+    transform: none !important;
+}
+
+.btn-secondary:hover {
+    background: #f8fafc !important;
+    transform: none !important;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="url"],
+input[type="number"],
+textarea,
+select,
+.tags-input {
+    background: #f3f4f6 !important;
+    color: #1f2937 !important;
+    border: 1px solid rgba(15, 23, 42, 0.14) !important;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+    border-color: rgba(25, 118, 210, 0.45) !important;
+    box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.14) !important;
+}
+
+.dropzone {
+    background: #ffffff !important;
+    border: 1.5px dashed rgba(15, 23, 42, 0.18) !important;
+    transform: none !important;
+}
+
+.dropzone:hover,
+.dropzone.drag-over {
+    border-color: rgba(25, 118, 210, 0.45) !important;
+    transform: none !important;
+}
+
+.muted,
+.login-logo p,
+.panel p,
+.result-section label {
+    color: #6b7280 !important;
+}
+
+.result-section p {
+    color: #1f2937 !important;
+}
+
