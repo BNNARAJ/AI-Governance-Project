@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,6 +16,7 @@ class FairnessDataset:
 
 class FairnessEngine:
     def _to_binary(self, values: list[Any]) -> list[int]:
+        """Convert values to binary 0/1 for consistency."""
         out: list[int] = []
         for value in values:
             s = str(value).strip().lower()
@@ -27,6 +27,7 @@ class FairnessEngine:
         return out
 
     def load_csv_dataset(self, csv_path: str) -> FairnessDataset:
+        """Load dataset from CSV with required columns."""
         df = pd.read_csv(csv_path)
         required = {"true_label", "prediction", "sensitive_feature"}
         missing = [c for c in required if c not in df.columns]
@@ -38,7 +39,21 @@ class FairnessEngine:
             sensitive_feature=[str(v) for v in df["sensitive_feature"].tolist()],
         )
 
+    def from_arrays(
+        self,
+        true_labels: list[Any],
+        predictions: list[Any],
+        sensitive_feature: list[Any],
+    ) -> FairnessDataset:
+        """Build dataset directly from arrays (useful for different model runs)."""
+        return FairnessDataset(
+            true_labels=self._to_binary(true_labels),
+            predictions=self._to_binary(predictions),
+            sensitive_feature=[str(v) for v in sensitive_feature],
+        )
+
     def build_dummy_dataset(self, n_rows: int = 300, seed: int = 42) -> FairnessDataset:
+        """Generate synthetic dataset for testing fairness pipeline."""
         n_rows = max(60, int(n_rows))
         rng = np.random.default_rng(seed)
         groups = rng.choice(["group_a", "group_b"], size=n_rows, p=[0.52, 0.48])
@@ -59,6 +74,7 @@ class FairnessEngine:
         )
 
     def compute_metrics(self, dataset: FairnessDataset) -> dict[str, float]:
+        """Compute fairness and confusion-matrix metrics."""
         y_true = np.array(dataset.true_labels)
         y_pred = np.array(dataset.predictions)
         groups = np.array(dataset.sensitive_feature)
@@ -67,6 +83,7 @@ class FairnessEngine:
         if len(unique) < 2:
             raise ValueError("Sensitive feature must contain at least two groups.")
 
+        # Selection rates per group
         rates: dict[str, float] = {}
         for g in unique:
             mask = groups == g
@@ -112,6 +129,7 @@ class FairnessEngine:
         }
 
     def evaluate_rules(self, rules: list[dict[str, Any]], metrics: dict[str, float]) -> list[dict[str, Any]]:
+        """Evaluate rules against computed metrics."""
         evaluations: list[dict[str, Any]] = []
         for rule in rules:
             metric_name = str(rule.get("metric_name", "")).strip()
@@ -127,7 +145,6 @@ class FairnessEngine:
             if op == ">=" and tmin is not None:
                 status = float(value) >= float(tmin)
             elif op == "<=":
-                # Check threshold_min first, then threshold_max if min is None
                 if tmin is not None:
                     status = float(value) <= float(tmin)
                 elif tmax is not None:

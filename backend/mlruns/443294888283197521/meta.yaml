@@ -1,0 +1,8 @@
+artifact_location: file:C:/Users/smita/Governance/AI-Governance-Project/backend/mlruns/443294888283197521
+creation_time: 1778657806287
+experiment_id: '443294888283197521'
+last_update_time: 1778657806287
+lifecycle_stage: active
+name: API_Deterministic_Audit
+trace_location: null
+workspace: default

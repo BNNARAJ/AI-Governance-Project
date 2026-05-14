@@ -1,0 +1,14 @@
+artifact_uri: file:C:/Users/smita/Governance/AI-Governance-Project/backend/mlruns/634744137960574045/d45f7dbf41e6477ea27a52a4a6aae073/artifacts
+end_time: 1778698088125
+entry_point_name: ''
+experiment_id: '634744137960574045'
+lifecycle_stage: active
+run_id: d45f7dbf41e6477ea27a52a4a6aae073
+run_name: Audit_20260514_001806
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1778698086603
+status: 3
+tags: []
+user_id: smita
