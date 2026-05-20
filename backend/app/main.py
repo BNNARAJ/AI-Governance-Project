@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse
 import os
 import shutil
 import json
+import asyncio
 from typing import List, Optional, Any
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -12,9 +13,7 @@ import tempfile
 import zipfile
 import hashlib
 import yaml
-import csv
-import asyncio
-import chromadb
+from collections import deque
 
 load_dotenv()
 
@@ -62,8 +61,10 @@ from app.services.auth_service import auth_service, UserRole
 from app.services.report_service import generate_audit_report, export_hybrid_audit_csv
 from app.services.model_service import model_service
 from app.services.model_profile import ModelProfile, FeatureSpec
-from app.services.mlflow_bundle import import_mlflow_zip_to_model_store
-from app.services.fairness_engine import fairness_engine
+from app.services.statistical.governance import run_governance, router as statistical_governance_router
+from app.services.statistical.metrics import run_all_metrics
+from app.services.statistical.upload import router as statistical_upload_router
+
 import requests
 from fastapi.responses import StreamingResponse
 
@@ -77,7 +78,6 @@ class AuditConfig(BaseModel):
     api_mode: str = "prompt"  # "prompt" or "features"
     api_url: Optional[str] = None
     api_key: Optional[str] = None
-    api_model_name: Optional[str] = None
     local_file_path: Optional[str] = None
     custom_feature_names: Optional[List[str]] = None
     fairness_data_mode: str = "dummy"  # "dummy" | "upload"
@@ -106,6 +106,72 @@ audit_history = []
 compliance_policies = []
 last_audit_result = None  # Store full results for report generation
 rule_extraction_cache: dict[str, list[dict[str, Any]]] = {}
+
+# --- Real-time Monitoring State ---
+monitor_events: deque[dict[str, Any]] = deque(maxlen=300)
+monitor_clients: list[asyncio.Queue] = []
+monitor_state: dict[str, Any] = {
+    "run_id": None,
+    "status": "idle",  # idle | running | completed | failed
+    "stage": "idle",
+    "progress": 0,
+    "message": "No audit running.",
+    "started_at": None,
+    "updated_at": datetime.utcnow().isoformat(),
+    "last_error": None,
+    "latest_summary": None,
+}
+
+
+def _publish_monitor_event(event_type: str, payload: dict[str, Any]) -> None:
+    event = {
+        "type": event_type,
+        "timestamp": datetime.utcnow().isoformat(),
+        **payload,
+    }
+    monitor_events.append(event)
+    for q in list(monitor_clients):
+        try:
+            q.put_nowait(event)
+        except Exception:
+            # Drop stale client queues.
+            try:
+                monitor_clients.remove(q)
+            except ValueError:
+                pass
+
+
+def _update_monitor_state(
+    *,
+    status: Optional[str] = None,
+    stage: Optional[str] = None,
+    progress: Optional[int] = None,
+    message: Optional[str] = None,
+    run_id: Optional[str] = None,
+    last_error: Optional[str] = None,
+    latest_summary: Optional[dict[str, Any]] = None,
+) -> None:
+    if run_id is not None:
+        monitor_state["run_id"] = run_id
+    if status is not None:
+        monitor_state["status"] = status
+    if stage is not None:
+        monitor_state["stage"] = stage
+    if progress is not None:
+        monitor_state["progress"] = max(0, min(int(progress), 100))
+    if message is not None:
+        monitor_state["message"] = message
+    if last_error is not None:
+        monitor_state["last_error"] = last_error
+    if latest_summary is not None:
+        monitor_state["latest_summary"] = latest_summary
+    monitor_state["updated_at"] = datetime.utcnow().isoformat()
+    _publish_monitor_event(
+        "state_update",
+        {
+            "state": dict(monitor_state),
+        },
+    )
 
 # --- Auth Endpoints ---
 @app.post("/auth/login")
@@ -199,40 +265,14 @@ async def upload_model(file: UploadFile = File(...)):
     return {"message": "Model uploaded successfully", "filename": file.filename}
 
 
+from app.services.statistical.upload import upload_model as stat_upload_model
+
 @app.post("/upload-mlflow-model")
 async def upload_mlflow_model(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="Only .zip MLflow bundles are supported")
+    return await stat_upload_model(file)
 
-    # Save zip to a temp file first (UploadFile stream can be non-seekable).
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
-        import shutil as _shutil
-
-        _shutil.copyfileobj(file.file, tmp)
-        tmp_path = tmp.name
-
-    try:
-        extracted_root = os.path.join(project_dir, "uploads", "models", "_mlflow")
-        model_id, profile, _bundle_dir = import_mlflow_zip_to_model_store(
-            zip_file_path=tmp_path,
-            original_filename=file.filename,
-            extracted_root_dir=extracted_root,
-            model_store_dir=model_service.model_dir,
-        )
-
-        if profile is not None:
-            model_service.save_profile(model_id, profile.model_dump())
-
-        return {
-            "message": "MLflow model imported successfully",
-            "model_id": model_id,
-            "profile_generated": bool(profile),
-        }
-    finally:
-        try:
-            os.remove(tmp_path)
-        except Exception:
-            pass
 
 @app.get("/inspect-model/{filename}")
 async def inspect_model(filename: str):
@@ -305,35 +345,35 @@ async def upload_feature_schema(filename: str, file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse schema: {e}")
 
-    features_raw = parsed.get("features") if isinstance(parsed, dict) else parsed
-    if not isinstance(features_raw, list):
-        raise HTTPException(status_code=400, detail="Schema must provide a list of features")
+    # features_raw = parsed.get("features") if isinstance(parsed, dict) else parsed
+    # if not isinstance(features_raw, list):
+    #     raise HTTPException(status_code=400, detail="Schema must provide a list of features")
 
-    specs = []
-    for item in features_raw:
-        if not isinstance(item, dict) or not item.get("name"):
-            continue
-        specs.append(
-            FeatureSpec(
-                name=str(item.get("name")),
-                dtype=str(item.get("dtype") or "float"),
-                use=bool(item.get("use", True)),
-                id_column=bool(item.get("id_column", False)),
-                required=bool(item.get("required", False)),
-                default=item.get("default", 0),
-                allowed_values=item.get("allowed_values"),
-                encoding=item.get("encoding"),
-                min=item.get("min"),
-                max=item.get("max"),
-            )
-        )
+    # specs = []
+    # for item in features_raw:
+    #     if not isinstance(item, dict) or not item.get("name"):
+    #         continue
+    #     specs.append(
+    #         FeatureSpec(
+    #             name=str(item.get("name")),
+    #             dtype=str(item.get("dtype") or "float"),
+    #             use=bool(item.get("use", True)),
+    #             id_column=bool(item.get("id_column", False)),
+    #             required=bool(item.get("required", False)),
+    #             default=item.get("default", 0),
+    #             allowed_values=item.get("allowed_values"),
+    #             encoding=item.get("encoding"),
+    #             min=item.get("min"),
+    #             max=item.get("max"),
+    #         )
+    #     )
 
-    if not specs:
-        raise HTTPException(status_code=400, detail="No valid features found in schema")
+    # if not specs:
+    #     raise HTTPException(status_code=400, detail="No valid features found in schema")
 
-    profile = ModelProfile(model_id=filename, features=specs)
-    saved = model_service.save_profile(filename, profile.model_dump())
-    return {"message": "Feature schema uploaded successfully", "feature_count": len(saved.features)}
+    # profile = ModelProfile(model_id=filename, features=specs)
+    # saved = model_service.save_profile(filename, profile.model_dump())
+    # return {"message": "Feature schema uploaded successfully", "feature_count": len(saved.features)}
 
 
 @app.post("/upload-fairness-data")
@@ -348,9 +388,11 @@ async def upload_fairness_data(file: UploadFile = File(...)):
     with open(target, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Validate required columns early so users fail fast.
     try:
-        _ = fairness_engine.load_csv_dataset(target)
+        import pandas as pd
+        df = pd.read_csv(target)
+        if df.empty or len(df.columns) == 0:
+            raise ValueError("CSV is empty or has no columns")
     except Exception as e:
         try:
             os.remove(target)
@@ -360,14 +402,43 @@ async def upload_fairness_data(file: UploadFile = File(...)):
 
     return {
         "message": "Fairness dataset uploaded",
-        "file_path": target,
-        "required_columns": ["true_label", "prediction", "sensitive_feature"],
+        "file_path": target
     }
 
 # --- Core Endpoints ---
 @app.get("/")
 async def root():
     return {"message": "AI Governance Agent API is running"}
+
+@app.get("/monitor/status")
+async def monitor_status():
+    return {
+        "state": monitor_state,
+        "recent_events": list(monitor_events)[-25:],
+    }
+
+@app.get("/monitor/stream")
+async def monitor_stream():
+    queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+    monitor_clients.append(queue)
+
+    async def event_generator():
+        # Send a snapshot first so new subscribers render immediately.
+        snapshot = {"type": "snapshot", "timestamp": datetime.utcnow().isoformat(), "state": dict(monitor_state)}
+        yield f"data: {json.dumps(snapshot)}\n\n"
+        try:
+            while True:
+                event = await queue.get()
+                yield f"data: {json.dumps(event)}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            try:
+                monitor_clients.remove(queue)
+            except ValueError:
+                pass
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.post("/upload-regulations")
 async def upload_regulations(files: List[UploadFile] = File(...)):
@@ -379,7 +450,7 @@ async def upload_regulations(files: List[UploadFile] = File(...)):
         file_path = os.path.join(upload_dir, file.filename)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        chunks = await asyncio.to_thread(rag_service.index_pdf, file_path)
+        chunks = rag_service.index_pdf(file_path)
         total_chunks += chunks
     
     return {"message": f"Successfully uploaded and indexed {len(files)} files", "total_chunks": total_chunks}
@@ -394,6 +465,7 @@ async def configure_audit(config: AuditConfig):
 async def run_audit():
     import traceback
     import re
+    global last_audit_result
     try:
         if not current_config:
             raise HTTPException(status_code=400, detail="Audit not configured. Call /configure-audit first.")
@@ -489,16 +561,10 @@ async def run_audit():
         model_type = _resolve_model_type()
         run_behavioral = model_type in {"llm", "unknown"}
         run_deterministic = model_type in {"ml", "unknown"}
-        
-        # 1. Retrieve knowledge from RAG system
         rag_warning = None
-        try:
-            context = await asyncio.to_thread(rag_service.query_regulations, "compliance and fairness rules", n_results=5)
-        except Exception as e:
-            context = "No regulations indexed yet. Using default governance baseline thresholds."
-            rag_warning = f"RAG retrieval fallback used: {e}"
-
-        # 2. Extract strict machine-readable governance rules from policy context.
+        
+        # === PHASE 2: AGENTIC EXTRACTOR ===
+        # Query RAG + Extract fairness rules using intelligent agent
         default_rules = [
             {
                 "metric_name": "disparate_impact_ratio",
@@ -557,33 +623,57 @@ async def run_audit():
 
         extracted_rules = default_rules
         rules_source = "default_fallback"
+        phase2_status = {"extracted_rules_count": 0, "regulations_used": [], "extraction_status": "not_run"}
+        
         cache_key = hashlib.sha256(
             json.dumps(
                 {
-                    "context": context,
+                    "model_desc": current_config.model_description or "",
                     "variance_factors": current_config.variance_factors or [],
+                    "model_type": model_type,
                 },
                 sort_keys=True,
             ).encode("utf-8")
         ).hexdigest()
+        
         if cache_key in rule_extraction_cache:
             extracted_rules = rule_extraction_cache[cache_key]
             rules_source = "cache"
+            phase2_status["extraction_status"] = "cache_hit"
         else:
             gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             try:
                 if gemini_key and "your_actual_gemini_api_key" not in gemini_key:
-                    rules_raw = await gemini_service.extract_governance_rules(context, current_config.variance_factors or [])
-                    rules_clean = rules_raw.strip().replace("```json", "").replace("```", "").strip()
-                    rules_json = json.loads(rules_clean)
-                    if isinstance(rules_json, list):
-                        strict_rules = _normalize_rules(rules_json)
-                        if strict_rules:
-                            extracted_rules = strict_rules
-                            rules_source = "llm_extraction"
+                    # Phase 2: Use agentic extractor (queries RAG + extracts rules)
+                    print("[Phase 2] Invoking agentic extractor to query regulations and extract rules...")
+                    phase2_result = await gemini_service.extract_rules_from_regulations(
+                        model_description=current_config.model_description or "General ML model",
+                        variance_factors=current_config.variance_factors or ["general_fairness"],
+                        model_type=model_type
+                    )
+                    
+                    phase2_status = {
+                        "extracted_rules_count": len(phase2_result.get("rules", [])),
+                        "regulations_used": phase2_result.get("regulations_used", []),
+                        "extraction_status": phase2_result.get("extraction_status", "unknown"),
+                        "error": phase2_result.get("error")
+                    }
+                    
+                    strict_rules = _normalize_rules(phase2_result.get("rules", []))
+                    if strict_rules:
+                        extracted_rules = strict_rules
+                        rules_source = "phase2_agentic"
+                    else:
+                        extracted_rules = default_rules
+                        rules_source = "phase2_agentic_fallback"
+                        
                 rule_extraction_cache[cache_key] = extracted_rules
             except Exception as e:
-                print(f"Governance rule extraction fallback used: {e}")
+                print(f"[Phase 2] Error in agentic extraction: {e}")
+                import traceback
+                traceback.print_exc()
+                phase2_status["extraction_status"] = "error"
+                phase2_status["error"] = str(e)
 
         desired_n = 6
         try:
@@ -984,35 +1074,19 @@ async def run_audit():
                                 merged = model_service.apply_variance(profile, merged, current_config.variance_factors[0], i)
                             resp = requests.post(current_config.api_url, headers=headers, json=merged, timeout=30)
                         else:
-                            is_openai_compat = current_config.api_url and ("openrouter.ai" in current_config.api_url or "openai.com" in current_config.api_url or "groq.com" in current_config.api_url or "/v1/chat/completions" in current_config.api_url)
-                            
-                            if is_openai_compat:
-                                payload = {
-                                    "model": current_config.api_model_name or "meta-llama/llama-3-8b-instruct:free",
-                                    "messages": [{"role": "user", "content": test.get("prompt", "")}]
-                                }
-                                resp = requests.post(current_config.api_url, headers=headers, json=payload, timeout=30)
-                                try:
-                                    j = resp.json()
-                                    target_response = j.get("choices", [{}])[0].get("message", {}).get("content")
-                                    if not target_response:
-                                        target_response = str(j)
-                                except Exception:
-                                    target_response = str(resp.text)
-                            else:
-                                resp = requests.post(
-                                    current_config.api_url,
-                                    headers=headers,
-                                    json={"prompt": test.get("prompt", "")},
-                                    timeout=30,
-                                )
-                                try:
-                                    j = resp.json()
-                                    target_response = j.get("prediction") if isinstance(j, dict) else str(j)
-                                    if not target_response:
-                                        target_response = str(j)
-                                except Exception:
-                                    target_response = str(resp.text)
+                            resp = requests.post(
+                                current_config.api_url,
+                                headers=headers,
+                                json={"prompt": test.get("prompt", "")},
+                                timeout=30,
+                            )
+                        try:
+                            j = resp.json()
+                            target_response = j.get("prediction") if isinstance(j, dict) else str(j)
+                            if not target_response:
+                                target_response = str(j)
+                        except Exception:
+                            target_response = str(resp.text)
                     except Exception as e:
                         target_response = f"API Error calling target model: {str(e)}"
                 else:
@@ -1079,161 +1153,627 @@ async def run_audit():
         else:
             print("Behavioral (LLM adversarial) phase skipped for this run.")
 
-        # 5. Deterministic fairness engine + hybrid validation.
-        fairness_metrics: dict[str, Any] = {}
-        hybrid_rule_results: list[dict[str, Any]] = []
-        fairness_matrices: dict[str, Any] = {}
-        deterministic_dataset_payload: dict[str, Any] = {}
-        deterministic_warning = None
+        model_id = current_config.local_file_path
 
-        confidence_threshold = 0.75 if not ml_readiness.get("limited_assurance") else 0.9
-        rules_with_severity = []
-        for r in extracted_rules:
-            rr = dict(r)
-            conf = float(rr.get("confidence", 0.5) or 0.5)
-            rr["severity"] = "mandatory" if conf >= confidence_threshold else "advisory"
-            rules_with_severity.append(rr)
+        fairness_data_file = current_config.fairness_data_file
 
-        if run_deterministic:
-            fairness_mode = str(getattr(current_config, "fairness_data_mode", "dummy") or "dummy").strip().lower()
-            fairness_file = getattr(current_config, "fairness_data_file", None)
-            try:
-                if fairness_mode == "upload" and fairness_file:
-                    fairness_dataset = fairness_engine.load_csv_dataset(fairness_file)
-                else:
-                    fairness_dataset = fairness_engine.build_dummy_dataset(n_rows=max(200, desired_n * 25))
-                    if fairness_mode == "upload" and not fairness_file:
-                        deterministic_warning = "fairness_data_mode=upload was selected but no file was provided; dummy dataset used."
-                fairness_metrics = fairness_engine.compute_metrics(fairness_dataset)
-                fairness_matrices = fairness_engine.compute_matrices(fairness_dataset)
-                hybrid_rule_results = fairness_engine.evaluate_rules(rules_with_severity, fairness_metrics)
+        sens_feature = (current_config.variance_factors[0].lower() 
+                        if current_config.variance_factors else "gender")
+                        
+        is_dummy = getattr(current_config, "fairness_data_mode", "dummy") == "dummy"
 
-                rows = fairness_engine.to_rows(fairness_dataset)
-                dataset_csv_path = os.path.join(
-                    AUDIT_RESULTS_DIR,
-                    f"fairness_dataset_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                )
-                with open(dataset_csv_path, "w", newline="", encoding="utf-8") as f:
-                    writer = csv.DictWriter(f, fieldnames=["true_label", "prediction", "sensitive_feature"])
-                    writer.writeheader()
-                    writer.writerows(rows)
+        governance_results = (
+            model_service.run_statistical_governance(
+              model_id=model_id,
+              dataset_path=fairness_data_file,
+              sensitive_feature=sens_feature,
+              target_column="approved",
+              generate_synthetic=is_dummy
+           )
+        )
 
-                row_cap = 5000
-                deterministic_dataset_payload = {
-                    "columns": ["true_label", "prediction", "sensitive_feature"],
-                    "rows": rows[:row_cap],
-                    "row_count": len(rows),
-                    "truncated": len(rows) > row_cap,
-                    "source_mode": fairness_mode,
-                    "export_csv_path": dataset_csv_path,
-                }
-            except Exception as e:
-                deterministic_warning = f"Deterministic fairness engine fallback used: {e}"
-                fairness_dataset = fairness_engine.build_dummy_dataset(n_rows=max(200, desired_n * 25))
-                fairness_metrics = fairness_engine.compute_metrics(fairness_dataset)
-                fairness_matrices = fairness_engine.compute_matrices(fairness_dataset)
-                hybrid_rule_results = fairness_engine.evaluate_rules(rules_with_severity, fairness_metrics)
-                rows = fairness_engine.to_rows(fairness_dataset)
-                deterministic_dataset_payload = {
-                    "columns": ["true_label", "prediction", "sensitive_feature"],
-                    "rows": rows[:5000],
-                    "row_count": len(rows),
-                    "truncated": len(rows) > 5000,
-                    "source_mode": "dummy_fallback",
-                    "export_csv_path": None,
-                }
-        else:
-            fairness_metrics = {
-                "disparate_impact_ratio": None,
-                "demographic_parity_difference": None,
-                "selection_rate_min": None,
-                "selection_rate_max": None,
-                "row_count": 0,
-            }
-            fairness_matrices = {
-                "overall_confusion_matrix": None,
-                "overall_rates": {},
-                "by_group": {},
-                "equalized_odds_gap": {"tpr_gap": None, "fpr_gap": None},
-            }
-            deterministic_dataset_payload = {
-                "columns": ["true_label", "prediction", "sensitive_feature"],
-                "rows": [],
-                "row_count": 0,
-                "truncated": False,
-                "source_mode": "not_executed",
-                "export_csv_path": None,
-            }
+        if last_audit_result is None:
+            last_audit_result = {}
 
-        mandatory_failures = [
-            r for r in hybrid_rule_results
-            if r.get("status") == "FAIL" and r.get("severity") == "mandatory"
-        ]
-        hybrid_overall_status = "FAIL" if mandatory_failures else "PASS"
+        gov_summary = governance_results.get("governance_summary", {})
+        failed_rules = gov_summary.get("failed_rules", [])
+        passed_rules = gov_summary.get("passed_rules", [])
+        violations = len(failed_rules)
 
-        print("Calculating summary and checking policies...")
-        n = len(results) if results else 0
-        avg_f = (total_fairness / n) if n else 0.0
-        avg_c = (total_compliance / n) if n else 0.0
-        avg_a = (total_accuracy / n) if n else 0.0
-
-        # Check policy violations
-        violations = 0
-        if run_behavioral:
-            for policy in compliance_policies:
-                if avg_f < policy.get("min_fairness_score", 0):
-                    violations += 1
-                if avg_c < policy.get("min_compliance_score", 0):
-                    violations += 1
-                if avg_a < policy.get("min_accuracy_score", 0):
-                    violations += 1
-        
-        audit_record = {
-            "timestamp": datetime.now().isoformat(),
-            "model_description": current_config.model_description,
-            "variance_factors": current_config.variance_factors,
-            "avg_fairness": round(avg_f, 1),
-            "avg_compliance": round(avg_c, 1),
-            "avg_accuracy": round(avg_a, 1),
-            "test_count": len(results),
-            "policy_violations": violations,
-            "hybrid_overall_status": hybrid_overall_status,
-            "model_type_resolved": model_type,
-            "behavioral_phase_executed": run_behavioral,
-            "deterministic_phase_executed": run_deterministic,
-            "ml_ingestion_level": ml_readiness.get("ml_ingestion_level"),
-            "assurance_level": ml_readiness.get("assurance_level"),
+        # Map statistical metrics to frontend structure
+        fairness_raw = governance_results.get("fairness_metrics", {}).get(sens_feature, {})
+        parity = fairness_raw.get("demographic_parity", {})
+        mapped_fairness = {
+            "disparate_impact_ratio": parity.get("dir", {}).get("value"),
+            "demographic_parity_difference": parity.get("dpd", {}).get("value"),
+            "row_count": governance_results.get("synthetic_rows") or len(governance_results.get("dataset_preview", [])),
         }
-        audit_history.append(audit_record)
+        
+        det_metrics = governance_results.get("deterministic_metrics", {})
+        conf_metrics = det_metrics.get("confusion_metrics", {})
+        mapped_matrices = {
+            "overall_confusion_matrix": conf_metrics.get("confusion_matrix"),
+            "overall_rates": {
+                "accuracy": conf_metrics.get("accuracy"),
+                "precision": conf_metrics.get("precision"),
+                "tpr": conf_metrics.get("recall"), # TPR is recall
+            }
+        }
 
-        global last_audit_result
         last_audit_result = {
             "status": "Audit Complete",
-            "summary": audit_record,
-            "results": results,
+            "summary": {
+                "timestamp": datetime.now().isoformat(),
+                "model_description": current_config.model_description,
+                "variance_factors": current_config.variance_factors,
+                "avg_fairness": gov_summary.get("fairness_score", 0),
+                "avg_compliance": gov_summary.get("compliance_score", 0),
+                "avg_accuracy": gov_summary.get("overall_score", 0),
+                "test_count": governance_results.get("synthetic_rows") or len(governance_results.get("dataset_preview", [])),
+                "policy_violations": violations,
+                "deterministic_phase_executed": True,
+            },
+            "results": results if "results" in locals() else [],
             "policy_violations": violations,
             "hybrid_validation": {
-                "overall_status": hybrid_overall_status,
-                "fairness_metrics": fairness_metrics,
-                "fairness_matrices": fairness_matrices,
-                "rule_results": hybrid_rule_results,
+                "overall_status": gov_summary.get("status", "FAIL"),
+                "fairness_metrics": {
+                    **mapped_fairness,
+                    **mapped_matrices,
+                    "tp": conf_metrics.get("true_positive"),
+                    "tn": conf_metrics.get("true_negative"),
+                    "fp": conf_metrics.get("false_positive"),
+                    "fn": conf_metrics.get("false_negative"),
+                    "precision": conf_metrics.get("precision"),
+                    "recall": conf_metrics.get("recall"),
+                    "f1_score": conf_metrics.get("f1_score"),
+                    "classification_accuracy": conf_metrics.get("accuracy"),
+                    "confusion_matrix": conf_metrics.get("confusion_matrix"),
+                },
+                "rule_results": failed_rules + passed_rules,
             },
-            "deterministic_dataset": deterministic_dataset_payload,
-            "execution_plan": {
-                "model_type": model_type,
-                "behavioral_phase_executed": run_behavioral,
-                "deterministic_phase_executed": run_deterministic,
-                "rule_source": rules_source,
-                "ml_readiness": ml_readiness,
+
+            "deterministic_dataset": {
+                "row_count": governance_results.get("synthetic_rows") or len(governance_results.get("dataset_preview", [])),
+                "source_mode": governance_results.get("dataset_type", "uploaded"),
+                "truncated": True,
+                "rows": governance_results.get("dataset_preview", [])
             },
+            "dataset_sample": governance_results.get("dataset_preview", []),
+            "statistical_governance": governance_results,
         }
 
-        if "llm_warning" in locals():
-            last_audit_result["warning"] = llm_warning
-        if rag_warning:
-            last_audit_result["rag_warning"] = rag_warning
-        if deterministic_warning:
-            last_audit_result["deterministic_warning"] = deterministic_warning
+# Merge
+        # audit_results["statistical_governance"] = governance_results
+
+        # fairness_metrics: dict[str, Any] = {}
+        # hybrid_rule_results: list[dict[str, Any]] = []
+        # deterministic_warning = None
+
+        # confidence_threshold = (
+        #     0.75
+        #     if not ml_readiness.get(
+        #         "limited_assurance"
+        #     )
+        #     else 0.9
+        # )
+
+        # rules_with_severity = []
+
+        # for r in extracted_rules:
+
+        #     rr = dict(r)
+
+        #     conf = float(
+        #         rr.get("confidence", 0.5)
+        #         or 0.5
+        #     )
+
+        #     rr["severity"] = (
+        #         "mandatory"
+        #         if conf >= confidence_threshold
+        #         else "advisory"
+        #     )
+
+        #     rules_with_severity.append(rr)
+
+        # # =========================================================
+        # # DETERMINISTIC ML FAIRNESS DATASET
+        # # =========================================================
+
+        # def _generate_model_dataset_and_predict(
+        #     n_rows: int,
+        # ):
+
+        #     import numpy as np
+        #     import pandas as pd
+
+        #     from app.services.fairness_engine import (
+        #         FairnessDataset,
+        #     )
+
+        #     profile_source_id = (
+        #         current_config.local_file_path
+        #         or "ml_model"
+        #     )
+
+        #     profile = (
+        #         model_service.get_or_default_profile(
+        #             profile_source_id,
+        #             feature_names=(
+        #                 feature_names
+        #                 or current_config.custom_feature_names
+        #             ),
+        #         )
+        #     )
+
+        #     baseline = (
+        #         model_service.build_baseline_features(
+        #             profile
+        #         )
+        #     )
+
+        #     predictions = []
+        #     true_labels = []
+        #     sensitive_features = []
+        #     dataset_rows = []
+
+        #     for i in range(n_rows):
+
+        #         factor = (
+        #             variance_factors_cfg[
+        #                 i % len(
+        #                     variance_factors_cfg
+        #                 )
+        #             ]
+        #             if variance_factors_cfg
+        #             else "General Fairness"
+        #         )
+
+        #         merged = (
+        #             model_service.apply_variance(
+        #                 profile,
+        #                 baseline,
+        #                 factor,
+        #                 i,
+        #             )
+        #         )
+
+        #         # =====================================
+        #         # SENSITIVE GROUP
+        #         # =====================================
+
+        #         sensitive_group = (
+        #             "group_b"
+        #             if i % 3 == 0
+        #             else "group_a"
+        #         )
+
+        #         merged[
+        #             "sensitive_feature"
+        #         ] = sensitive_group
+
+        #         # =====================================
+        #         # CLEAN FEATURES
+        #         # =====================================
+
+        #         clean_features = {}
+
+        #         for k, v in merged.items():
+
+        #             try:
+
+        #                 if isinstance(v, str):
+
+        #                     val = (
+        #                         v.lower()
+        #                         .strip()
+        #                     )
+
+        #                     if val in [
+        #                         "male",
+        #                         "m",
+        #                     ]:
+        #                         clean_features[
+        #                             k
+        #                         ] = 1
+
+        #                     elif val in [
+        #                         "female",
+        #                         "f",
+        #                     ]:
+        #                         clean_features[
+        #                             k
+        #                         ] = 0
+
+        #                     elif val in [
+        #                         "yes",
+        #                         "true",
+        #                     ]:
+        #                         clean_features[
+        #                             k
+        #                         ] = 1
+
+        #                     elif val in [
+        #                         "no",
+        #                         "false",
+        #                     ]:
+        #                         clean_features[
+        #                             k
+        #                         ] = 0
+
+        #                     else:
+        #                         try:
+        #                             clean_features[
+        #                                 k
+        #                             ] = float(v)
+        #                         except:
+        #                             clean_features[
+        #                                 k
+        #                             ] = 0
+
+        #                 else:
+
+        #                     clean_features[k] = (
+        #                         float(v)
+        #                     )
+
+        #             except:
+        #                 clean_features[k] = 0
+
+        #         # =====================================
+        #         # RUN ACTUAL ML MODEL
+        #         # =====================================
+
+        #         pred_int = 0
+
+        #         try:
+
+        #             prediction = (
+        #                 model_service.predict(
+        #                     current_config.local_file_path,
+        #                     clean_features,
+        #                 )
+        #             )
+
+        #             # sklearn output handling
+
+        #             if isinstance(
+        #                 prediction,
+        #                 (
+        #                     list,
+        #                     np.ndarray,
+        #                 ),
+        #             ):
+        #                 prediction = prediction[0]
+
+        #             pred_int = int(
+        #                 float(prediction)
+        #             )
+
+        #         except Exception as e:
+
+        #             print(
+        #                 f"Prediction error row {i}: {e}"
+        #             )
+
+        #             # fallback
+
+        #             pred_int = np.random.choice([0, 1])
+
+        #         # =====================================
+        #         # TRUE LABEL LOGIC
+        #         # =====================================
+                
+        #         import random
+        #         true_label = pred_int if random.random() > 0.15 else (1 - pred_int)
+
+        #         # =====================================
+        #         # STORE RESULTS
+        #         # =====================================
+
+        #         true_labels.append(
+        #             true_label
+        #         )
+
+        #         predictions.append(
+        #             pred_int
+        #         )
+
+        #         sensitive_features.append(
+        #             sensitive_group
+        #         )
+
+        #         row_record = dict(
+        #             clean_features
+        #         )
+
+        #         row_record[
+        #             "true_label"
+        #         ] = true_label
+
+        #         row_record[
+        #             "prediction"
+        #         ] = pred_int
+
+        #         row_record[
+        #             "sensitive_feature"
+        #         ] = sensitive_group
+
+        #         dataset_rows.append(
+        #             row_record
+        #         )
+
+        #     fairness_dataset = (
+        #         FairnessDataset(
+        #             true_labels=true_labels,
+        #             predictions=predictions,
+        #             sensitive_feature=sensitive_features,
+        #         )
+        #     )
+
+        #     return (
+        #         fairness_dataset,
+        #         dataset_rows,
+        #     )
+
+        # # =========================================================
+        # # DETERMINISTIC FAIRNESS ENGINE
+        # # =========================================================
+
+        # if run_deterministic:
+
+        #     import mlflow
+        #     import pandas as pd
+
+        #     dataset_rows = []
+
+        #     mlflow.set_tracking_uri(
+        #         "./mlruns"
+        #     )
+
+        #     mlflow.set_experiment(
+        #         "ML_Model_Fairness_Audit"
+        #     )
+
+        #     try:
+
+        #         with mlflow.start_run(
+        #             run_name=(
+        #                 f"Audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        #             )
+        #         ):
+
+        #             mlflow.log_param(
+        #                 "model_description",
+        #                 current_config.model_description,
+        #             )
+
+        #             mlflow.log_param(
+        #                 "connection_type",
+        #                 current_config.connection_type,
+        #             )
+
+        #             # =================================
+        #             # GENERATE DATASET
+        #             # =================================
+
+        #             fairness_dataset, dataset_rows = (
+        #                 _generate_model_dataset_and_predict(
+        #                     n_rows=max(
+        #                         200,
+        #                         desired_n * 30,
+        #                     )
+        #                 )
+        #             )
+
+        #             # =================================
+        #             # COMPUTE METRICS
+        #             # =================================
+
+        #             fairness_metrics = (
+        #                 fairness_engine.compute_metrics(
+        #                     fairness_dataset
+        #                 )
+        #             )
+
+        #             hybrid_rule_results = (
+        #                 fairness_engine.evaluate_rules(
+        #                     rules_with_severity,
+        #                     fairness_metrics,
+        #                 )
+        #             )
+
+        #             # =================================
+        #             # LOG METRICS
+        #             # =================================
+
+        #             for k, v in (
+        #                 fairness_metrics.items()
+        #             ):
+
+        #                 if isinstance(
+        #                     v,
+        #                     (
+        #                         int,
+        #                         float,
+        #                     ),
+        #                 ):
+
+        #                     mlflow.log_metric(
+        #                         k,
+        #                         v,
+        #                     )
+
+        #             # =================================
+        #             # SAVE GENERATED DATASET
+        #             # =================================
+
+        #             if dataset_rows:
+
+        #                 df = pd.DataFrame(
+        #                     dataset_rows
+        #                 )
+
+        #                 csv_path = os.path.join(
+        #                     AUDIT_RESULTS_DIR,
+        #                     "generated_fairness_dataset.csv",
+        #                 )
+
+        #                 df.to_csv(
+        #                     csv_path,
+        #                     index=False,
+        #                 )
+
+        #                 mlflow.log_artifact(
+        #                     csv_path
+        #                 )
+
+        #     except Exception as e:
+
+        #         deterministic_warning = (
+        #             f"Deterministic fairness engine failed: {e}"
+        #         )
+
+        #         fairness_dataset = (
+        #             fairness_engine.build_dummy_dataset(
+        #                 n_rows=max(
+        #                     200,
+        #                     desired_n * 25,
+        #                 )
+        #             )
+        #         )
+
+        #         fairness_metrics = (
+        #             fairness_engine.compute_metrics(
+        #                 fairness_dataset
+        #             )
+        #         )
+
+        #         hybrid_rule_results = (
+        #             fairness_engine.evaluate_rules(
+        #                 rules_with_severity,
+        #                 fairness_metrics,
+        #             )
+        #         )
+
+        # else:
+
+        #     fairness_metrics = {
+        #         "disparate_impact_ratio": None,
+        #         "demographic_parity_difference": None,
+        #         "selection_rate_min": None,
+        #         "selection_rate_max": None,
+        #         "row_count": 0,
+        #     }
+
+        #     hybrid_rule_results = []
+
+        # mandatory_failures = [
+        #     r
+        #     for r in hybrid_rule_results
+        #     if r.get("status") == "FAIL"
+        #     and r.get("severity")
+        #     == "mandatory"
+        # ]
+
+        # hybrid_overall_status = (
+        #     "FAIL"
+        #     if mandatory_failures
+        #     else "PASS"
+        # )
+
+        # print(
+        #     "Calculating summary and checking policies..."
+        # )
+
+        # n = (
+        #     len(results)
+        #     if results
+        #     else 0
+        # )
+
+        # avg_f = (
+        #     total_fairness / n
+        # ) if n else 0.0
+
+        # avg_c = (
+        #     total_compliance / n
+        # ) if n else 0.0
+
+        # avg_a = (
+        #     total_accuracy / n
+        # ) if n else 0.0
+
+        # violations = 0
+
+        # if run_behavioral:
+
+        #     for policy in compliance_policies:
+
+        #         if avg_f < policy.get(
+        #             "min_fairness_score",
+        #             0,
+        #         ):
+        #             violations += 1
+
+        #         if avg_c < policy.get(
+        #             "min_compliance_score",
+        #             0,
+        #         ):
+        #             violations += 1
+
+        #         if avg_a < policy.get(
+        #             "min_accuracy_score",
+        #             0,
+        #         ):
+        #             violations += 1
+        # audit_record = {
+        #     "timestamp": datetime.now().isoformat(),
+        #     "model_description": current_config.model_description,
+        #     "variance_factors": current_config.variance_factors,
+        #     "avg_fairness": round(avg_f, 1),
+        #     "avg_compliance": round(avg_c, 1),
+        #     "avg_accuracy": round(avg_a, 1),
+        #     "test_count": len(results),
+        #     "policy_violations": violations,
+        #     "hybrid_overall_status": hybrid_overall_status,
+        #     "model_type_resolved": model_type,
+        #     "behavioral_phase_executed": run_behavioral,
+        #     "deterministic_phase_executed": run_deterministic,
+        #     "ml_ingestion_level": ml_readiness.get("ml_ingestion_level"),
+        #     "assurance_level": ml_readiness.get("assurance_level"),
+        # }
+        # audit_history.append(audit_record)
+
+        # global last_audit_result
+        # last_audit_result = {
+        #     "status": "Audit Complete",
+        #     "summary": audit_record,
+        #     "results": results,
+        #     "policy_violations": violations,
+        #     "hybrid_validation": {
+        #         "overall_status": hybrid_overall_status,
+        #         "fairness_metrics": fairness_metrics,
+        #         "rule_results": hybrid_rule_results,
+        #     },
+        #     "execution_plan": {
+        #         "model_type": model_type,
+        #         "behavioral_phase_executed": run_behavioral,
+        #         "deterministic_phase_executed": run_deterministic,
+        #         "rule_source": rules_source,
+        #         "ml_readiness": ml_readiness,
+        #     },
+        #     "phase_2_agentic_extraction": phase2_status,  # Phase 2: Agentic Extractor results
+        #     "dataset_sample": dataset_rows[:50] if run_deterministic and 'dataset_rows' in locals() and dataset_rows else [],
+        # }
+
+        # if "llm_warning" in locals():
+        #     last_audit_result["warning"] = llm_warning
+        # if rag_warning:
+        #     last_audit_result["rag_warning"] = rag_warning
+        # if deterministic_warning:
+        #     last_audit_result["deterministic_warning"] = deterministic_warning
 
         csv_path = os.path.join(
             AUDIT_RESULTS_DIR,
@@ -1307,6 +1847,10 @@ async def generate_report():
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
+
+# --- Include Statistical Routers ---
+app.include_router(statistical_upload_router, prefix="/statistical", tags=["Statistical Model Management"])
+app.include_router(statistical_governance_router, prefix="/statistical", tags=["Statistical Model Governance"])
 
 if __name__ == "__main__":
     import uvicorn

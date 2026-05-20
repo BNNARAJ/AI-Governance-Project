@@ -162,6 +162,9 @@ def generate_audit_report(audit_data: dict) -> BytesIO:
     summary = audit_data.get("summary", {})
     results = audit_data.get("results", [])
     violations = audit_data.get("policy_violations", 0)
+    hybrid = audit_data.get("hybrid_validation", {}) or {}
+    hybrid_metrics = hybrid.get("fairness_metrics", {}) or {}
+    hybrid_rules = hybrid.get("rule_results", []) or []
 
     # ─── HEADER ───
     story.append(Spacer(1, 0.5*cm))
@@ -253,6 +256,66 @@ def generate_audit_report(audit_data: dict) -> BytesIO:
     story.append(Spacer(1, 0.5*cm))
 
     # ─── DETAILED RESULTS ───
+    story.append(Paragraph("Hybrid Validation", styles["SectionHeading"]))
+    overall_status = str(hybrid.get("overall_status", "N/A")).upper()
+    status_style = styles["SuccessText"] if overall_status == "PASS" else styles["ErrorText"]
+    story.append(Paragraph(f"<b>Overall Hybrid Status: {overall_status}</b>", status_style))
+    story.append(Spacer(1, 0.2 * cm))
+
+    metric_rows = [
+        ["Metric", "Value", "Reference"],
+        ["Disparate Impact Ratio", str(hybrid_metrics.get("disparate_impact_ratio", "N/A")), "Target >= 0.8"],
+        ["Demographic Parity Difference", str(hybrid_metrics.get("demographic_parity_difference", "N/A")), "Target <= 0.1"],
+        ["Selection Rate (Min / Max)", f"{hybrid_metrics.get('selection_rate_min', 'N/A')} / {hybrid_metrics.get('selection_rate_max', 'N/A')}", "Closer gap is better"],
+        ["Sample Size (Rows)", str(hybrid_metrics.get("row_count", "N/A")), "Rows used in deterministic engine"],
+        ["Classification Accuracy", str(hybrid_metrics.get("classification_accuracy", "N/A")), "(TP + TN) / Total"],
+        ["Precision", str(hybrid_metrics.get("precision", "N/A")), "TP / (TP + FP)"],
+        ["Recall", str(hybrid_metrics.get("recall", "N/A")), "TP / (TP + FN)"],
+        ["F1 Score", str(hybrid_metrics.get("f1_score", "N/A")), "2PR / (P + R)"],
+    ]
+    metric_table = Table(metric_rows, colWidths=[180, 130, 170])
+    metric_table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#f0f4ff")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), PRIMARY),
+        ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#e2e8f0")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(metric_table)
+    story.append(Spacer(1, 0.25 * cm))
+
+    passed_rules = len([r for r in hybrid_rules if r.get("status") == "PASS"])
+    failed_rules = len([r for r in hybrid_rules if r.get("status") == "FAIL"])
+    mandatory_failed = len([r for r in hybrid_rules if r.get("status") == "FAIL" and r.get("severity") == "mandatory"])
+    summary_table = Table(
+        [[f"Rules Evaluated: {len(hybrid_rules)}", f"Passed: {passed_rules}", f"Failed: {failed_rules}", f"Mandatory Violations: {mandatory_failed}"]],
+        colWidths=[120, 90, 90, 170],
+    )
+    summary_table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#f8fafc")),
+        ("TEXTCOLOR", (0, 0), (-1, -1), HexColor("#1e293b")),
+        ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#e2e8f0")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 0.5 * cm))
+    story.append(HRFlowable(width="100%", color=PRIMARY_LIGHT, thickness=1))
+    story.append(Spacer(1, 0.5 * cm))
+
+    story.append(HRFlowable(width="100%", color=PRIMARY_LIGHT, thickness=1))
+    story.append(Spacer(1, 0.5 * cm))
+
     if results:
         story.append(Paragraph("Detailed Test Results", styles["SectionHeading"]))
         story.append(Spacer(1, 0.2*cm))
@@ -325,6 +388,147 @@ def generate_audit_report(audit_data: dict) -> BytesIO:
                 story.append(PageBreak())
                 story.append(Spacer(1, 0.5*cm))
 
+    # ─── STATISTICAL GOVERNANCE SECTION ───
+    stat_gov = audit_data.get("statistical_governance")
+    if stat_gov and stat_gov.get("status") == "success":
+        story.append(PageBreak())
+        story.append(Spacer(1, 0.5*cm))
+        story.append(Paragraph("🛡️ ML Model Statistical Governance", styles["SectionHeading"]))
+        story.append(Spacer(1, 0.2*cm))
+
+        # Model Inspection
+        inspection = stat_gov.get("model_inspection", {})
+        
+        inspect_data = [
+            ["Model Framework", inspection.get("model_format", "N/A").upper()],
+            ["Estimated Task Type", inspection.get("model_type", "N/A").upper()],
+            ["Features Inspected", str(len(inspection.get("feature_names", [])))],
+        ]
+        inspect_table = Table(inspect_data, colWidths=[150, 330])
+        inspect_table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+            ("TEXTCOLOR", (0, 0), (0, -1), PRIMARY),
+            ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#e2e8f0")),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(Paragraph("<b>Model Characterization</b>", styles["TestCaseNumber"]))
+        story.append(Spacer(1, 0.2*cm))
+        story.append(inspect_table)
+        story.append(Spacer(1, 0.5*cm))
+
+        # Metrics
+        det_metrics = stat_gov.get("deterministic_metrics", {})
+        task_type = det_metrics.get("task_type", "unknown")
+        
+        story.append(Paragraph("<b>Performance Metrics</b>", styles["TestCaseNumber"]))
+        story.append(Spacer(1, 0.2*cm))
+        
+        if "classification" in task_type:
+            conf = det_metrics.get("confusion_metrics", {})
+            metrics_rows = [
+                ["Metric", "Value", "Explanation"],
+                ["Accuracy", f"{conf.get('accuracy', 0):.2%}" if isinstance(conf.get('accuracy'), (int, float)) else str(conf.get('accuracy', 'N/A')), "Overall correct predictions"],
+                ["Precision", f"{conf.get('precision', 0):.2%}" if isinstance(conf.get('precision'), (int, float)) else str(conf.get('precision', 'N/A')), "TP / (TP + FP)"],
+                ["Recall", f"{conf.get('recall', 0):.2%}" if isinstance(conf.get('recall'), (int, float)) else str(conf.get('recall', 'N/A')), "TP / (TP + FN)"],
+                ["F1-Score", f"{conf.get('f1_score', 0):.2%}" if isinstance(conf.get('f1_score'), (int, float)) else str(conf.get('f1_score', 'N/A')), "Harmonic mean of precision and recall"],
+            ]
+        else:
+            reg = det_metrics.get("regression_metrics", {})
+            metrics_rows = [
+                ["Metric", "Value", "Explanation"],
+                ["Mean Squared Error (MSE)", f"{reg.get('mean_squared_error', 0):.4f}" if isinstance(reg.get('mean_squared_error'), (int, float)) else str(reg.get('mean_squared_error', 'N/A')), "Average squared difference"],
+                ["Mean Absolute Error (MAE)", f"{reg.get('mean_absolute_error', 0):.4f}" if isinstance(reg.get('mean_absolute_error'), (int, float)) else str(reg.get('mean_absolute_error', 'N/A')), "Average absolute difference"],
+                ["R2 Score", f"{reg.get('r2_score', 0):.4f}" if isinstance(reg.get('r2_score'), (int, float)) else str(reg.get('r2_score', 'N/A')), "Coefficient of determination"],
+            ]
+            
+        metrics_table = Table(metrics_rows, colWidths=[150, 100, 230])
+        metrics_table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("BACKGROUND", (0, 0), (-1, 0), HexColor("#f0f4ff")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), PRIMARY),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#e2e8f0")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(metrics_table)
+        story.append(Spacer(1, 0.5*cm))
+
+        # Fairness metrics
+        fair_metrics = stat_gov.get("fairness_metrics", {})
+        story.append(Paragraph("<b>Demographic Fairness Analysis</b>", styles["TestCaseNumber"]))
+        story.append(Spacer(1, 0.2*cm))
+        
+        fair_rows = [
+            ["Sensitive Feature", "Disparate Impact Ratio (DIR)", "Demographic Parity Diff (DPD)", "Status"],
+        ]
+        for feat, feat_data in fair_metrics.items():
+            if not isinstance(feat_data, dict):
+                continue
+            dp = feat_data.get("demographic_parity", {})
+            dpd_val = dp.get("dpd", {}).get("value", "N/A")
+            dir_val = dp.get("dir", {}).get("value", "N/A")
+            status = feat_data.get("policy_evaluation", {}).get("overall_fairness_status", "PASSED")
+            
+            fair_rows.append([
+                feat,
+                f"{dir_val:.4f}" if isinstance(dir_val, (int, float)) else str(dir_val),
+                f"{dpd_val:.4f}" if isinstance(dpd_val, (int, float)) else str(dpd_val),
+                status
+            ])
+            
+        if len(fair_rows) > 1:
+            fair_table = Table(fair_rows, colWidths=[150, 130, 130, 70])
+            fair_table.setStyle(TableStyle([
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("BACKGROUND", (0, 0), (-1, 0), HexColor("#f0f4ff")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), PRIMARY),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#e2e8f0")),
+                ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            story.append(fair_table)
+        else:
+            story.append(Paragraph("<i>No fairness results evaluated.</i>", styles["SmallMuted"]))
+        story.append(Spacer(1, 0.5*cm))
+
+        # Governance Summary
+        gov_summary = stat_gov.get("governance_summary", {})
+        story.append(Paragraph("<b>Statistical Governance Evaluation Summary</b>", styles["TestCaseNumber"]))
+        story.append(Spacer(1, 0.2*cm))
+        
+        gov_status = gov_summary.get("overall_status", "PASSED")
+        status_text = f"<b>STATUS: {gov_status}</b>"
+        
+        story.append(Paragraph(status_text, styles["SuccessText"] if gov_status == "PASSED" else styles["ErrorText"]))
+        story.append(Paragraph(gov_summary.get("summary_text", ""), styles["ReportBodyText"]))
+        
+        violations_list = gov_summary.get("violations", [])
+        if violations_list:
+            story.append(Spacer(1, 0.1*cm))
+            story.append(Paragraph("<b>Violations Detected:</b>", styles["ErrorText"]))
+            for v in violations_list:
+                story.append(Paragraph(f"• {v}", styles["SmallMuted"]))
+                
+        recs = gov_summary.get("recommendations", [])
+        if recs:
+            story.append(Spacer(1, 0.1*cm))
+            story.append(Paragraph("<b>Remediation Recommendations:</b>", styles["WarningText"]))
+            for r in recs:
+                story.append(Paragraph(f"• {r}", styles["SmallMuted"]))
+
     # ─── FOOTER ───
     story.append(Spacer(1, 0.8*cm))
     story.append(HRFlowable(width="100%", color=PRIMARY_LIGHT, thickness=1))
@@ -346,6 +550,60 @@ def generate_audit_report(audit_data: dict) -> BytesIO:
     doc.build(story)
     buffer.seek(0)
     return buffer
+
+
+def generate_governance_summary(deterministic_metrics: dict, fairness_metrics: dict) -> dict:
+    """
+    Generates a high-level governance summary from model metrics and fairness results.
+    """
+    status = "PASSED"
+    violations = []
+    recommendations = []
+    
+    # 1. Evaluate accuracy / performance metrics
+    accuracy = 1.0
+    task_type = deterministic_metrics.get("task_type", "unknown")
+    if task_type in ["binary_classification", "multiclass_classification", "classification"]:
+        confusion = deterministic_metrics.get("confusion_metrics", {})
+        accuracy = confusion.get("accuracy", 1.0)
+        if accuracy is None:
+            accuracy = 1.0
+        if accuracy < 0.70:
+            status = "FAILED"
+            violations.append(f"Model accuracy ({accuracy:.2%}) is below recommended 70% threshold.")
+            recommendations.append("Retrain model with more representative data to improve accuracy.")
+    elif task_type == "regression":
+        reg = deterministic_metrics.get("regression_metrics", {})
+        r2 = reg.get("r2_score", 1.0)
+        if r2 is not None and r2 < 0.50:
+            status = "FAILED"
+            violations.append(f"Model R2 score ({r2:.2f}) is below recommended 0.50 threshold.")
+            recommendations.append("Investigate feature engineering or alternative regression algorithms.")
+
+    # 2. Evaluate fairness metrics
+    for col, results in fairness_metrics.items():
+        if isinstance(results, dict) and "error" in results:
+            continue
+        policy_eval = results.get("policy_evaluation", {}) if isinstance(results, dict) else {}
+        if policy_eval.get("overall_fairness_status") == "FAILED":
+            status = "FAILED"
+            for v in policy_eval.get("violations", []):
+                violations.append(f"Fairness violation for {col}: {v}")
+            recommendations.append(f"Perform bias mitigation on sensitive feature '{col}'.")
+
+    if not violations:
+        summary_text = "The model meets all basic accuracy and fairness requirements."
+        recommendations.append("Continue monitoring model drift and performance in production.")
+    else:
+        summary_text = f"The model failed compliance checks due to {len(violations)} violations."
+
+    return {
+        "overall_status": status,
+        "violations": violations,
+        "summary_text": summary_text,
+        "recommendations": recommendations,
+        "fairness_checked_features": list(fairness_metrics.keys())
+    }
 
 
 def export_hybrid_audit_csv(audit_data: dict, output_path: str) -> str:
@@ -379,6 +637,14 @@ def export_hybrid_audit_csv(audit_data: dict, output_path: str) -> str:
                 "selection_rate_min",
                 "selection_rate_max",
                 "row_count",
+                "tp",
+                "tn",
+                "fp",
+                "fn",
+                "precision",
+                "recall",
+                "f1_score",
+                "classification_accuracy",
             ],
         )
         writer.writeheader()
@@ -404,6 +670,14 @@ def export_hybrid_audit_csv(audit_data: dict, output_path: str) -> str:
                     "selection_rate_min": metrics.get("selection_rate_min"),
                     "selection_rate_max": metrics.get("selection_rate_max"),
                     "row_count": metrics.get("row_count"),
+                    "tp": metrics.get("tp"),
+                    "tn": metrics.get("tn"),
+                    "fp": metrics.get("fp"),
+                    "fn": metrics.get("fn"),
+                    "precision": metrics.get("precision"),
+                    "recall": metrics.get("recall"),
+                    "f1_score": metrics.get("f1_score"),
+                    "classification_accuracy": metrics.get("classification_accuracy"),
                 }
             )
     return output_path

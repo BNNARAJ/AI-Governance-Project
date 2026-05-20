@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "model_id": "statistical_testing_mlflow_model_ready_mlflow_20260519_231045.pkl",
+  "features": [
+    {
+      "name": "Gender",
+      "use": true,
+      "id_column": false,
+      "dtype": "int",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "ApplicantIncome",
+      "use": true,
+      "id_column": false,
+      "dtype": "int",
+      "required": false,
+      "default": 9102,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "LoanAmount",
+      "use": true,
+      "id_column": false,
+      "dtype": "int",
+      "required": false,
+      "default": 427,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "Credit_History",
+      "use": true,
+      "id_column": false,
+      "dtype": "int",
+      "required": false,
+      "default": 1,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    }
+  ]
+}

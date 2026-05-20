@@ -1,4 +1,4 @@
-const API = 'http://localhost:8000';
+const API = 'http://127.0.0.1:8000';
 let authToken = null;
 let currentUser = null;
 let fairnessDataFilePath = null;
@@ -362,7 +362,7 @@ function setupFairnessDataUpload() {
             showToast('Fairness dataset uploaded.', 'success');
         } catch (err) {
             fairnessDataFilePath = null;
-            status.textContent = 'Upload failed. Ensure CSV has true_label, prediction, sensitive_feature.';
+            status.textContent = 'Upload failed. Please check the dataset format.';
             showToast(`Fairness data upload failed: ${err.message}`, 'error');
         } finally {
             fileInput.value = '';
@@ -859,8 +859,6 @@ function renderResults(data) {
                 <div class="metric-item"><label>Selection Rate (Min)</label><strong>${fmt(metrics.selection_rate_min, 4)}</strong></div>
                 <div class="metric-item"><label>Selection Rate (Max)</label><strong>${fmt(metrics.selection_rate_max, 4)}</strong></div>
                 <div class="metric-item"><label>Rows Evaluated</label><strong>${escapeHtml(metrics.row_count ?? 0)}</strong></div>
-                <div class="metric-item"><label>Equalized Odds TPR Gap</label><strong>${fmt(matrices.equalized_odds_gap?.tpr_gap, 4)}</strong></div>
-                <div class="metric-item"><label>Equalized Odds FPR Gap</label><strong>${fmt(matrices.equalized_odds_gap?.fpr_gap, 4)}</strong></div>
             </div>
             ${data.deterministic_warning ? `<p style="color:var(--warning);margin-top:0.8rem">${escapeHtml(data.deterministic_warning)}</p>` : ''}
         </div>
@@ -922,7 +920,7 @@ function renderResults(data) {
 
         <div class="panel glass">
             <h2><i data-lucide="table"></i> Full Deterministic Dataset Used</h2>
-            <p class="muted">Rows: ${escapeHtml(dataset.row_count ?? 0)} · Source: ${escapeHtml(dataset.source_mode || 'N/A')}${dataset.truncated ? ' · showing first 5000 rows' : ''}</p>
+            <p class="muted">Rows: ${escapeHtml(dataset.row_count ?? 0)} · Source: ${escapeHtml(dataset.source_mode || 'N/A')}${dataset.truncated ? ' · showing first 10 rows' : ''}</p>
             <div class="table-wrap">
                 <table class="data-table compact">
                     <thead><tr><th>#</th><th>true_label</th><th>prediction</th><th>sensitive_feature</th></tr></thead>

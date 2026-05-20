@@ -1,0 +1,54 @@
+{
+  "status": "Audit Complete",
+  "summary": {
+    "timestamp": "2026-05-20T18:17:28.749257",
+    "model_description": "loan",
+    "variance_factors": [
+      "Gender"
+    ],
+    "avg_fairness": 0,
+    "avg_compliance": 0,
+    "avg_accuracy": 0,
+    "test_count": 0,
+    "policy_violations": 0,
+    "deterministic_phase_executed": true
+  },
+  "results": [],
+  "policy_violations": 0,
+  "hybrid_validation": {
+    "overall_status": "FAIL",
+    "fairness_metrics": {
+      "disparate_impact_ratio": null,
+      "demographic_parity_difference": null,
+      "row_count": 0,
+      "overall_confusion_matrix": null,
+      "overall_rates": {
+        "accuracy": null,
+        "precision": null,
+        "tpr": null
+      },
+      "tp": null,
+      "tn": null,
+      "fp": null,
+      "fn": null,
+      "precision": null,
+      "recall": null,
+      "f1_score": null,
+      "classification_accuracy": null,
+      "confusion_matrix": null
+    },
+    "rule_results": []
+  },
+  "deterministic_dataset": {
+    "row_count": 0,
+    "source_mode": "uploaded",
+    "truncated": true,
+    "rows": []
+  },
+  "dataset_sample": [],
+  "statistical_governance": {
+    "status": "failed",
+    "error": "500: name 'aligned_features' is not defined"
+  },
+  "csv_export_path": "C:\\Users\\smita\\Final Governance\\AI-Governance-Project\\uploads\\audit_results\\hybrid_audit_20260520_181728.csv"
+}
