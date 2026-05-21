@@ -5,6 +5,7 @@ import { GovernanceWorkspaceService } from '../../core/services/governance-works
 import { BackendCapabilitiesService } from '../../core/services/backend-capabilities.service';
 import { PageHeaderComponent } from '../../shared/ui/page-header.component';
 import { SurfaceCardComponent } from '../../shared/ui/surface-card.component';
+import { CurrentAuditResponse } from '../../core/models/governance.models';
 
 @Component({
   selector: 'app-audit-results-page',
@@ -99,5 +100,44 @@ export class AuditResultsPageComponent {
     }
 
     return 'Critical';
+  }
+
+  protected metricEntries(audit: CurrentAuditResponse): { label: string; value: string }[] {
+    const metrics = audit.hybridValidation?.fairnessMetrics ?? {};
+    return Object.entries(metrics)
+      .filter(([, value]) => typeof value === 'number' || typeof value === 'string')
+      .map(([key, value]) => ({
+        label: this.toTitle(key),
+        value: typeof value === 'number' ? value.toFixed(value > 10 ? 0 : 4) : String(value)
+      }));
+  }
+
+  protected datasetColumns(audit: CurrentAuditResponse): string[] {
+    const row = audit.deterministicDataset?.rows[0];
+    return row ? Object.keys(row).slice(0, 6) : [];
+  }
+
+  protected formatCell(value: unknown): string {
+    if (typeof value === 'number') {
+      return Number.isInteger(value) ? value.toString() : value.toFixed(4);
+    }
+
+    if (value === null || value === undefined) {
+      return 'N/A';
+    }
+
+    return String(value);
+  }
+
+  protected formatThreshold(min: number | null, max: number | null, operator: string): string {
+    return operator.toLowerCase() === 'between'
+      ? `${min ?? 'N/A'} to ${max ?? 'N/A'}`
+      : `${operator || '>='} ${min ?? max ?? 'N/A'}`;
+  }
+
+  private toTitle(value: string): string {
+    return value
+      .replace(/[_-]+/g, ' ')
+      .replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1));
   }
 }

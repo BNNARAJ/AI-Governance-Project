@@ -1,11 +1,15 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { Observable, map, of } from 'rxjs';
+import { Observable, catchError, map, of, throwError } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { MockGovernanceDataSource } from '../data/mock-governance-data-source.service';
 import {
   AuditConfiguration,
+  AuditPreflight,
+  AuditProgress,
   CurrentAuditResponse,
+  DeterministicDatasetSummary,
+  HybridValidationSummary,
   SavedAuditReport,
   UploadedModelBundle
 } from '../models/governance.models';
@@ -32,10 +36,23 @@ export class AuditApiService {
           fileName: String(response.fileName ?? response.file_name ?? file.name),
           status: String(response.status ?? ''),
           message: String(response.message ?? 'Model uploaded successfully.'),
+          modelAuditId:
+            response.modelAuditId !== undefined && response.modelAuditId !== null
+              ? Number(response.modelAuditId)
+              : response.model_audit_id !== undefined && response.model_audit_id !== null
+                ? Number(response.model_audit_id)
+                : null,
+          modelZipUrl:
+            typeof (response.modelZipUrl ?? response.model_zip_url) === 'string'
+              ? String(response.modelZipUrl ?? response.model_zip_url)
+              : null,
           detectedArtifacts: response.detectedArtifacts ?? response.detected_artifacts ?? null,
           modelMetadata: response.modelMetadata ?? response.model_metadata ?? null,
           modelInspection: response.modelInspection ?? response.model_inspection ?? null
-        }))
+        })),
+        catchError((error) =>
+          throwError(() => new Error(this.toErrorMessage(error, 'Model upload failed.')))
+        )
       );
   }
 
@@ -83,7 +100,11 @@ export class AuditApiService {
             accuracy: item.accuracy,
             reasoning: item.reasoning
           })),
-          warnings: []
+          warnings: [],
+          hybridValidation: null,
+          deterministicDataset: null,
+          statisticalGovernance: null,
+          metricGlossary: null
         }))
       );
     }
@@ -145,9 +166,105 @@ export class AuditApiService {
             : [],
           warnings: Array.isArray(response.warnings)
             ? response.warnings.map((item: unknown) => String(item))
-            : []
-        }))
+            : [],
+          hybridValidation: this.mapHybridValidation(
+            response.hybridValidation ?? response.hybrid_validation
+          ),
+          deterministicDataset: this.mapDeterministicDataset(
+            response.deterministicDataset ?? response.deterministic_dataset
+          ),
+          statisticalGovernance:
+            response.statisticalGovernance ?? response.statistical_governance ?? null,
+          metricGlossary: response.metricGlossary ?? response.metric_glossary ?? null
+        })),
+        catchError((error) =>
+          throwError(() => new Error(this.toErrorMessage(error, 'Unable to run audit.')))
+        )
       );
+  }
+
+  preflight(configuration: AuditConfiguration): Observable<AuditPreflight> {
+    if (this.capabilities.mockMode()) {
+      return of({
+        pythonReachable: true,
+        targetEndpointReachable: true,
+        targetStatusCode: 200,
+        targetStatus: 'mock',
+        message: 'Mock audit connection is ready.',
+        checkedAt: new Date().toISOString()
+      });
+    }
+
+    return this.http
+      .post<any>(`${this.baseUrl}/api/Audit/preflight`, {
+        modelDescription: configuration.modelDescription,
+        varianceFactors: configuration.varianceFactors,
+        testCount: configuration.testCount,
+        connectionType: configuration.connectionType,
+        apiMode: configuration.apiMode,
+        apiUrl: configuration.apiUrl,
+        apiKey: configuration.apiKey,
+        modelName: configuration.modelName,
+        localFilePath: configuration.localModelName
+      })
+      .pipe(
+        map((response) => ({
+          pythonReachable: Boolean(response.pythonReachable),
+          targetEndpointReachable: Boolean(response.targetEndpointReachable),
+          targetStatusCode:
+            response.targetStatusCode !== undefined && response.targetStatusCode !== null
+              ? Number(response.targetStatusCode)
+              : null,
+          targetStatus: String(response.targetStatus ?? 'unknown'),
+          message: String(response.message ?? 'Connection check completed.'),
+          checkedAt:
+            typeof response.checkedAt === 'string'
+              ? response.checkedAt
+              : typeof response.checked_at === 'string'
+                ? response.checked_at
+                : null
+        })),
+        catchError((error) =>
+          throwError(() => new Error(this.toErrorMessage(error, 'Connection check failed.')))
+        )
+      );
+  }
+
+  loadProgress(): Observable<AuditProgress> {
+    if (this.capabilities.mockMode()) {
+      return of({
+        status: 'idle',
+        stage: 'idle',
+        progress: 0,
+        message: 'No audit running.',
+        updatedAt: null,
+        lastError: null
+      });
+    }
+
+    return this.http.get<any>(`${this.baseUrl}/api/Audit/progress`).pipe(
+      map((response) => ({
+        status: String(response.status ?? 'idle'),
+        stage: String(response.stage ?? 'idle'),
+        progress: Math.max(0, Math.min(100, Number(response.progress ?? 0))),
+        message: String(response.message ?? 'No audit running.'),
+        updatedAt:
+          typeof response.updatedAt === 'string'
+            ? response.updatedAt
+            : typeof response.updated_at === 'string'
+              ? response.updated_at
+              : null,
+        lastError:
+          typeof response.lastError === 'string'
+            ? response.lastError
+            : typeof response.last_error === 'string'
+              ? response.last_error
+              : null
+      })),
+      catchError((error) =>
+        throwError(() => new Error(this.toErrorMessage(error, 'Unable to load audit progress.')))
+      )
+    );
   }
 
   loadHistory(): Observable<SavedAuditReport[]> {
@@ -192,5 +309,80 @@ export class AuditApiService {
     return value === 'Low' || value === 'Medium' || value === 'High'
       ? value
       : 'Medium';
+  }
+
+  private toErrorMessage(error: any, fallback: string): string {
+    const payload = error?.error;
+    if (typeof payload === 'string' && payload.trim()) {
+      return payload;
+    }
+
+    const details = payload?.details ?? payload?.detail;
+    if (typeof details === 'string' && details.trim()) {
+      return details;
+    }
+
+    const message = payload?.message ?? error?.message;
+    return typeof message === 'string' && message.trim() ? message : fallback;
+  }
+
+  private mapHybridValidation(value: any): HybridValidationSummary | null {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+
+    const mapped = {
+      overallStatus: String(value.overallStatus ?? value.overall_status ?? 'Unknown'),
+      fairnessMetrics: this.toRecord(value.fairnessMetrics ?? value.fairness_metrics),
+      fairnessMatrices: this.toRecord(value.fairnessMatrices ?? value.fairness_matrices),
+      ruleResults: Array.isArray(value.ruleResults ?? value.rule_results)
+        ? (value.ruleResults ?? value.rule_results).map((item: any) => ({
+            metricName: String(item.metricName ?? item.metric_name ?? item.ruleName ?? item.rule_name ?? 'Metric'),
+            operator: String(item.operator ?? ''),
+            thresholdMin: this.toNullableNumber(item.thresholdMin ?? item.threshold_min),
+            thresholdMax: this.toNullableNumber(item.thresholdMax ?? item.threshold_max),
+            actualValue: this.toNullableNumber(item.actualValue ?? item.actual_value),
+            status: String(item.status ?? 'UNKNOWN'),
+            severity: String(item.severity ?? 'statistical')
+          }))
+        : []
+    };
+
+    return mapped.overallStatus === 'NOT_APPLICABLE' &&
+      Object.keys(mapped.fairnessMetrics).length === 0 &&
+      mapped.ruleResults.length === 0
+      ? null
+      : mapped;
+  }
+
+  private mapDeterministicDataset(value: any): DeterministicDatasetSummary | null {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+
+    const mapped = {
+      rowCount: Number(value.rowCount ?? value.row_count ?? 0),
+      totalRowsEvaluated: Number(value.totalRowsEvaluated ?? value.total_rows_evaluated ?? 0),
+      previewRowLimit: Number(value.previewRowLimit ?? value.preview_row_limit ?? 0),
+      previewRowCount: Number(value.previewRowCount ?? value.preview_row_count ?? 0),
+      sourceMode: String(value.sourceMode ?? value.source_mode ?? 'unknown'),
+      truncated: Boolean(value.truncated ?? false),
+      rows: Array.isArray(value.rows)
+        ? value.rows.filter((row: unknown) => row && typeof row === 'object')
+        : []
+    };
+
+    return mapped.totalRowsEvaluated === 0 && mapped.rows.length === 0 ? null : mapped;
+  }
+
+  private toRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  }
+
+  private toNullableNumber(value: unknown): number | null {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 }

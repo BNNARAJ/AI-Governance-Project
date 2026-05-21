@@ -117,76 +117,103 @@
         <p class="empty-copy">No notable findings surfaced in this review.</p>
       }
     </app-surface-card>
+  </section>
 
-    <app-surface-card
-      eyebrow="Reports"
-      title="History and exports"
-      subtitle="Save the latest report and download prior report files."
-    >
-      @if (reportAvailable) {
-        <div class="report-actions">
-          <div class="report-actions__toolbar">
-            <button
-              type="button"
-              class="button button--primary"
-              [disabled]="workspace.reportSaving()"
-              (click)="saveLatestReport()"
-            >
-              {{ workspace.reportSaving() ? 'Saving report...' : 'Save latest report' }}
-            </button>
-
-            @if (latestSavedReportId(); as latestId) {
-              <button
-                type="button"
-                class="button button--secondary"
-                (click)="downloadReport(latestId, auditHistory()[0]?.modelDescription ?? audit.modelUsed)"
-              >
-                Download latest saved report
-              </button>
-            }
-          </div>
-
-          @if (actionNotice()) {
-            <p class="action-notice">{{ actionNotice() }}</p>
-          }
-
-          @if (auditHistory().length > 0) {
-            <div class="history-table">
-              <div class="history-table__head">
-                <span>Model scope</span>
-                <span>Fairness</span>
-                <span>Compliance</span>
-                <span>Accuracy</span>
-                <span>Saved</span>
-                <span>Download</span>
+  @if (audit.hybridValidation || audit.deterministicDataset) {
+    <section class="score-grid">
+      <app-surface-card
+        eyebrow="Statistical validation"
+        title="Classic ML model testing details"
+        subtitle="Deterministic fairness and performance checks returned by the Python testing engine."
+      >
+        <div class="stat-layout">
+          @if (audit.hybridValidation; as hybrid) {
+            <div class="stat-panel">
+              <div class="stat-panel__heading">
+                <span>Hybrid status</span>
+                <strong>{{ hybrid.overallStatus }}</strong>
               </div>
 
-              @for (entry of auditHistory(); track entry.id) {
-                <div class="history-table__row">
-                  <strong>{{ entry.modelDescription }}</strong>
-                  <span>{{ entry.fairnessScore | number: '1.1-1' }}</span>
-                  <span>{{ entry.complianceScore | number: '1.1-1' }}</span>
-                  <span>{{ entry.accuracyScore | number: '1.1-1' }}</span>
-                  <span>{{ entry.createdAt | date: 'MMM d, y - h:mm a' }}</span>
-                  <button
-                    type="button"
-                    class="button button--secondary"
-                    (click)="downloadReport(entry.id, entry.modelDescription)"
-                  >
-                    Download
-                  </button>
+              @if (metricEntries(audit).length > 0) {
+                <div class="metric-grid">
+                  @for (metric of metricEntries(audit); track metric.label) {
+                    <article class="metric-tile">
+                      <span>{{ metric.label }}</span>
+                      <strong>{{ metric.value }}</strong>
+                    </article>
+                  }
+                </div>
+              }
+
+              @if (hybrid.ruleResults.length > 0) {
+                <div class="rule-table">
+                  <div class="rule-table__head">
+                    <span>Metric</span>
+                    <span>Expected</span>
+                    <span>Actual</span>
+                    <span>Status</span>
+                  </div>
+
+                  @for (rule of hybrid.ruleResults; track rule.metricName) {
+                    <div class="rule-table__row">
+                      <strong>{{ rule.metricName }}</strong>
+                      <span>{{ formatThreshold(rule.thresholdMin, rule.thresholdMax, rule.operator) }}</span>
+                      <span>{{ rule.actualValue ?? 'N/A' }}</span>
+                      <span class="status-pill" [attr.data-status]="rule.status.toLowerCase()">
+                        {{ rule.status }}
+                      </span>
+                    </div>
+                  }
                 </div>
               }
             </div>
-          } @else {
-            <p class="empty-copy">Save the latest run to create the first downloadable report.</p>
+          }
+
+          @if (audit.deterministicDataset; as dataset) {
+            <div class="stat-panel">
+              <div class="stat-panel__heading">
+                <span>Dataset evaluation</span>
+                <strong>{{ dataset.totalRowsEvaluated || dataset.rowCount }} rows</strong>
+              </div>
+
+              <div class="dataset-meta">
+                <article>
+                  <span>Source</span>
+                  <strong>{{ dataset.sourceMode }}</strong>
+                </article>
+                <article>
+                  <span>Preview</span>
+                  <strong>{{ dataset.previewRowCount }} rows</strong>
+                </article>
+                <article>
+                  <span>Truncated</span>
+                  <strong>{{ dataset.truncated ? 'Yes' : 'No' }}</strong>
+                </article>
+              </div>
+
+              @if (dataset.rows.length > 0) {
+                <div class="preview-table">
+                  <div class="preview-table__head">
+                    @for (column of datasetColumns(audit); track column) {
+                      <span>{{ column }}</span>
+                    }
+                  </div>
+
+                  @for (row of dataset.rows.slice(0, 5); track $index) {
+                    <div class="preview-table__row">
+                      @for (column of datasetColumns(audit); track column) {
+                        <span>{{ formatCell(row[column]) }}</span>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+            </div>
           }
         </div>
-      } @else {
-        <p class="empty-copy">Report tools are not available for this environment.</p>
-      }
-    </app-surface-card>
-  </section>
+      </app-surface-card>
+    </section>
+  }
 
   <section class="score-grid">
     <app-surface-card

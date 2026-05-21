@@ -497,6 +497,13 @@ async def delete_regulation(source_key: str):
 async def configure_audit(config: AuditConfig):
     global current_config
     current_config = config
+    _update_monitor_state(
+        status="idle",
+        stage="configured",
+        progress=0,
+        message="Audit configuration received.",
+        last_error="",
+    )
     return {"message": "Audit configuration updated", "config": config}
 
 @app.post("/run-audit")
@@ -506,7 +513,34 @@ async def run_audit():
     global last_audit_result
     try:
         if not current_config:
+            _update_monitor_state(
+                status="failed",
+                stage="configuration",
+                progress=100,
+                message="Audit not configured. Call /configure-audit first.",
+                last_error="Audit not configured.",
+            )
             raise HTTPException(status_code=400, detail="Audit not configured. Call /configure-audit first.")
+
+        run_id = f"audit-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        _update_monitor_state(
+            status="running",
+            stage="starting",
+            progress=3,
+            message="Starting audit run.",
+            run_id=run_id,
+            last_error="",
+        )
+
+        def _fail_result(error: str, message: str, **extra):
+            _update_monitor_state(
+                status="failed",
+                stage="failed",
+                progress=100,
+                message=message,
+                last_error=message,
+            )
+            return {"error": error, "message": message, **extra}
 
         def _resolve_model_type() -> str:
             requested = str(getattr(current_config, "model_type", "auto") or "auto").strip().lower()
@@ -650,6 +684,11 @@ async def run_audit():
         run_behavioral = model_type in {"llm", "unknown"}
         run_deterministic = model_type in {"ml", "unknown"}
         rag_warning = None
+        _update_monitor_state(
+            stage="preparing",
+            progress=10,
+            message=f"Resolved audit mode as {model_type.upper()}.",
+        )
         
         # === PHASE 2: AGENTIC EXTRACTOR ===
         # Query RAG + Extract fairness rules using intelligent agent
@@ -728,11 +767,21 @@ async def run_audit():
             extracted_rules = rule_extraction_cache[cache_key]
             rules_source = "cache"
             phase2_status["extraction_status"] = "cache_hit"
+            _update_monitor_state(
+                stage="regulation_context",
+                progress=22,
+                message="Loaded cached regulation rule context.",
+            )
         else:
             gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             try:
                 if gemini_key and "your_actual_gemini_api_key" not in gemini_key:
                     # Phase 2: Use agentic extractor (queries RAG + extracts rules)
+                    _update_monitor_state(
+                        stage="regulation_context",
+                        progress=16,
+                        message="Extracting regulation rules for the audit context.",
+                    )
                     print("[Phase 2] Invoking agentic extractor to query regulations and extract rules...")
                     phase2_result = await gemini_service.extract_rules_from_regulations(
                         model_description=current_config.model_description or "General ML model",
@@ -762,6 +811,11 @@ async def run_audit():
                 traceback.print_exc()
                 phase2_status["extraction_status"] = "error"
                 phase2_status["error"] = str(e)
+        _update_monitor_state(
+            stage="regulation_context",
+            progress=25,
+            message="Regulation context prepared.",
+        )
 
         desired_n = 6
         try:
@@ -1044,20 +1098,30 @@ async def run_audit():
             n_results=4,
             source_keys=regulation_source_keys or None,
         )
+        _update_monitor_state(
+            stage="retrieval",
+            progress=35,
+            message="Retrieved relevant regulation context.",
+        )
 
         if run_behavioral:
             gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             if not gemini_key or "your_actual_gemini_api_key" in gemini_key:
                 if model_type == "llm":
-                    return {
-                        "error": "Configuration Error: Invalid Gemini API Key",
-                        "message": "LLM mode requires a valid GOOGLE_API_KEY/GEMINI_API_KEY.",
-                        "traceback": "Key check failed for behavioral phase."
-                    }
+                    return _fail_result(
+                        "Configuration Error: Invalid Gemini API Key",
+                        "LLM mode requires a valid GOOGLE_API_KEY/GEMINI_API_KEY.",
+                        traceback="Key check failed for behavioral phase.",
+                    )
                 run_behavioral = False
                 llm_warning = "Behavioral audit skipped because Gemini API key is unavailable."
 
         if run_behavioral:
+            _update_monitor_state(
+                stage="generating_tests",
+                progress=42,
+                message="Generating audit test cases.",
+            )
             print("Generating test cases via Gemini...")
             try:
                 test_cases_raw = await gemini_service.generate_test_cases(
@@ -1070,12 +1134,12 @@ async def run_audit():
                 is_rate_limited = ("rate-limited" in err_s.lower()) or ("quota" in err_s.lower()) or ("resourceexhausted" in err_s.lower())
                 if not is_rate_limited:
                     print(f"Gemini LLM Error: {e}")
-                    return {
-                        "error": "LLM Service Error - Check API Key",
-                        "message": err_s,
-                        "raw": "",
-                        "details": err_s,
-                    }
+                    return _fail_result(
+                        "LLM Service Error - Check API Key",
+                        err_s,
+                        raw="",
+                        details=err_s,
+                    )
 
                 print(f"Gemini rate-limited; falling back to deterministic test cases: {e}")
                 profile, baseline = _profile_and_baseline_for_cases()
@@ -1104,7 +1168,12 @@ async def run_audit():
                         raise ValueError("LLM did not return a JSON array")
                 except Exception as e:
                     print(f"JSON Parse Error for test cases: {str(e)}")
-                    return {"error": "Failed to parse test cases from LLM", "raw": test_cases_raw, "details": str(e)}
+                    return _fail_result(
+                        "Failed to parse test cases from LLM",
+                        str(e),
+                        raw=test_cases_raw,
+                        details=str(e),
+                    )
 
             if not isinstance(test_cases, list):
                 test_cases = []
@@ -1141,9 +1210,21 @@ async def run_audit():
                     t["features"] = {}
 
             print(f"Running {len(test_cases)} tests against target model...")
+            _update_monitor_state(
+                stage="calling_target_model",
+                progress=55,
+                message=f"Running {len(test_cases)} test case(s) against the target model.",
+            )
             to_grade = []
+            case_count = max(1, len(test_cases))
             for i, test in enumerate(test_cases):
                 print(f"Test {i+1}/{len(test_cases)}: {test.get('risk_area', 'General')}")
+                if len(test_cases) > 0:
+                    _update_monitor_state(
+                        stage="calling_target_model",
+                        progress=55 + int(((i + 0.45) / case_count) * 22),
+                        message=f"Calling target model for test {i + 1} of {len(test_cases)}.",
+                    )
                 target_response = ""
                 if current_config.connection_type == "api":
                     try:
@@ -1175,14 +1256,25 @@ async def run_audit():
                                     merged[k] = v
                             if not raw_features and current_config.variance_factors:
                                 merged = model_service.apply_variance(profile, merged, current_config.variance_factors[0], i)
-                            resp = requests.post(current_config.api_url, headers=headers, json=merged, timeout=60)
+                            resp = await asyncio.to_thread(
+                                requests.post,
+                                current_config.api_url,
+                                headers=headers,
+                                json=merged,
+                                timeout=60,
+                            )
                         else:
                             prompt_payload = _build_prompt_request(test.get("prompt", ""))
-                            resp = requests.post(
+                            resp = await asyncio.to_thread(
+                                requests.post,
                                 current_config.api_url,
                                 headers=headers,
                                 json=prompt_payload,
                                 timeout=60,
+                            )
+                        if not resp.ok:
+                            raise RuntimeError(
+                                f"Target model API returned HTTP {resp.status_code}: {str(resp.text)[:500]}"
                             )
                         try:
                             j = resp.json()
@@ -1191,8 +1283,15 @@ async def run_audit():
                                 target_response = str(j)
                         except Exception:
                             target_response = str(resp.text)
+                        if not str(target_response).strip():
+                            raise RuntimeError("Target model API returned an empty response.")
+                        _update_monitor_state(
+                            stage="collecting_response",
+                            progress=55 + int(((i + 1) / case_count) * 25),
+                            message=f"Received response for test {i + 1} of {len(test_cases)}.",
+                        )
                     except Exception as e:
-                        target_response = f"API Error calling target model: {str(e)}"
+                        raise RuntimeError(f"API Error calling target model: {str(e)}") from e
                 else:
                     try:
                         raw_features = test.get("features", {})
@@ -1229,6 +1328,11 @@ async def run_audit():
                 )
 
             print("Grading responses...")
+            _update_monitor_state(
+                stage="grading",
+                progress=82,
+                message="Grading target model responses.",
+            )
             grades = []
             try:
                 grade_raw = await gemini_service.grade_responses_bulk(to_grade, context)
@@ -1258,12 +1362,96 @@ async def run_audit():
             print("Behavioral (LLM adversarial) phase skipped for this run.")
 
         model_id = current_config.local_file_path
+        _update_monitor_state(
+            stage="compiling_results",
+            progress=88,
+            message="Compiling audit results.",
+        )
+
+        behavioral_test_count = len(results) if "results" in locals() and results else 0
+        behavioral_executed = bool(run_behavioral and behavioral_test_count > 0)
+        if behavioral_executed:
+            avg_f_behavioral = round(total_fairness / behavioral_test_count, 1)
+            avg_c_behavioral = round(total_compliance / behavioral_test_count, 1)
+            avg_a_behavioral = round(total_accuracy / behavioral_test_count, 1)
+        else:
+            avg_f_behavioral = None
+            avg_c_behavioral = None
+            avg_a_behavioral = None
+
+        if not run_deterministic or not model_id:
+            last_audit_result = {
+                "status": "Audit Complete",
+                "summary": {
+                    "timestamp": datetime.now().isoformat(),
+                    "model_description": current_config.model_description,
+                    "variance_factors": current_config.variance_factors,
+                    "model_type_resolved": model_type,
+                    "avg_fairness": avg_f_behavioral,
+                    "avg_compliance": avg_c_behavioral,
+                    "avg_accuracy": avg_a_behavioral,
+                    "test_count": behavioral_test_count,
+                    "deterministic_rows_evaluated": 0,
+                    "deterministic_preview_rows": 0,
+                    "policy_violations": violations if "violations" in locals() else 0,
+                    "behavioral_phase_executed": behavioral_executed,
+                    "deterministic_phase_executed": False,
+                    "hybrid_overall_status": "NOT_APPLICABLE",
+                },
+                "results": results if "results" in locals() else [],
+                "policy_violations": violations if "violations" in locals() else 0,
+                "hybrid_validation": {
+                    "overall_status": "NOT_APPLICABLE",
+                    "fairness_metrics": {},
+                    "fairness_matrices": {},
+                    "rule_results": [],
+                },
+                "deterministic_dataset": {
+                    "row_count": 0,
+                    "total_rows_evaluated": 0,
+                    "preview_row_limit": 0,
+                    "preview_row_count": 0,
+                    "source_mode": "not_applicable",
+                    "truncated": False,
+                    "rows": [],
+                },
+                "statistical_governance": None,
+                "metric_glossary": get_metric_glossary(),
+            }
+
+            csv_path = os.path.join(
+                AUDIT_RESULTS_DIR,
+                f"hybrid_audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            )
+            _update_monitor_state(
+                stage="saving_results",
+                progress=95,
+                message="Saving audit result artifacts.",
+            )
+            export_hybrid_audit_csv(last_audit_result, csv_path)
+            last_audit_result["csv_export_path"] = csv_path
+            save_audit_result(last_audit_result)
+
+            print("Audit Complete!")
+            _update_monitor_state(
+                status="completed",
+                stage="completed",
+                progress=100,
+                message="Audit completed successfully.",
+                latest_summary=last_audit_result.get("summary"),
+            )
+            return last_audit_result
 
         fairness_data_file = current_config.fairness_data_file
         variance_factors = current_config.variance_factors or []
 
         is_dummy = getattr(current_config, "fairness_data_mode", "dummy") == "dummy"
 
+        _update_monitor_state(
+            stage="statistical_governance",
+            progress=90,
+            message="Running deterministic statistical governance checks.",
+        )
         governance_results = model_service.run_statistical_governance(
             model_id=model_id,
             dataset_path=fairness_data_file,
@@ -1324,7 +1512,6 @@ async def run_audit():
             or len(audit_rows)
         )
         preview_limit = governance_results.get("preview_row_limit", 10)
-        behavioral_test_count = len(results) if "results" in locals() and results else 0
 
         mapped_fairness = {
             "disparate_impact_ratio": dir_value,
@@ -1393,16 +1580,6 @@ async def run_audit():
         elif overall_status == "FAILED":
             overall_status = "FAIL"
 
-        behavioral_executed = bool(run_behavioral and behavioral_test_count > 0)
-        if behavioral_executed:
-            avg_f_behavioral = round(total_fairness / behavioral_test_count, 1)
-            avg_c_behavioral = round(total_compliance / behavioral_test_count, 1)
-            avg_a_behavioral = round(total_accuracy / behavioral_test_count, 1)
-        else:
-            avg_f_behavioral = None
-            avg_c_behavioral = None
-            avg_a_behavioral = None
-
         last_audit_result = {
             "status": "Audit Complete",
             "summary": {
@@ -1459,16 +1636,35 @@ async def run_audit():
             AUDIT_RESULTS_DIR,
             f"hybrid_audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
         )
+        _update_monitor_state(
+            stage="saving_results",
+            progress=95,
+            message="Saving audit result artifacts.",
+        )
         export_hybrid_audit_csv(last_audit_result, csv_path)
         last_audit_result["csv_export_path"] = csv_path
         save_audit_result(last_audit_result)
 
         print("Audit Complete!")
+        _update_monitor_state(
+            status="completed",
+            stage="completed",
+            progress=100,
+            message="Audit completed successfully.",
+            latest_summary=last_audit_result.get("summary"),
+        )
         return last_audit_result
 
     except Exception as e:
         err_trace = traceback.format_exc()
         print(f"CRITICAL AUDIT ERROR: {str(e)}\n{err_trace}")
+        _update_monitor_state(
+            status="failed",
+            stage="failed",
+            progress=100,
+            message=str(e),
+            last_error=str(e),
+        )
         return {
             "error": "Internal Server Error during Audit",
             "message": str(e),

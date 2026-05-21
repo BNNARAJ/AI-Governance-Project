@@ -17,6 +17,14 @@ import { AuditApiService } from '../../core/services/audit-api.service';
 import { PageHeaderComponent } from '../../shared/ui/page-header.component';
 import { SurfaceCardComponent } from '../../shared/ui/surface-card.component';
 
+type AuditStepState = 'pending' | 'active' | 'complete' | 'error';
+
+interface AuditStep {
+  label: string;
+  detail: string;
+  state: AuditStepState;
+}
+
 @Component({
   selector: 'app-audit-config-page',
   standalone: true,
@@ -40,6 +48,8 @@ export class AuditConfigPageComponent {
   protected readonly selectedModelFile = signal<File | null>(null);
   protected readonly modelUploadRunning = signal(false);
   protected readonly uploadedModelName = signal('');
+  protected readonly auditProgress = this.workspace.auditProgress;
+  protected readonly auditPreflight = this.workspace.auditPreflight;
   protected readonly auditRunState = this.capabilities.blockedState('auditRun');
   protected readonly runAvailable = this.capabilities.isAvailable('auditRun');
   protected readonly factorInput = signal('');
@@ -94,12 +104,13 @@ export class AuditConfigPageComponent {
     const connectionType = this.form.controls.connectionType.value;
 
     if (running) {
+      const progress = this.auditProgress();
       return {
-        title: 'Running review through the integrated backend',
-        detail:
-          connectionType === 'api'
-            ? 'The .NET API is coordinating the Python audit service and compiling the latest response. This usually takes around 15 to 30 seconds.'
-            : 'The .NET API is preparing the uploaded model bundle and collecting the current review output. This usually takes around 15 to 30 seconds.'
+        title: `${this.formatStage(progress.stage)} (${progress.progress}%)`,
+        detail: progress.message ||
+          (connectionType === 'api'
+            ? 'The .NET API is coordinating the Python audit service and compiling the latest response.'
+            : 'The .NET API is preparing the uploaded model bundle and collecting the current review output.')
       };
     }
 
@@ -110,6 +121,54 @@ export class AuditConfigPageComponent {
             ? 'Use a reachable model endpoint and provide the exact LLM model name when using OpenRouter or another chat-completions provider.'
           : 'Upload a ZIP model bundle first. The review will use the uploaded model identifier returned by the backend.'
     };
+  });
+  protected readonly auditSteps = computed<AuditStep[]>(() => {
+    const progress = this.auditProgress();
+    const preflight = this.auditPreflight();
+    const failed = progress.status === 'failed';
+    const completed = progress.status === 'completed';
+    const stageRank = failed
+      ? this.failedStageRank(progress.stage, progress.message, progress.progress)
+      : this.stageRank(progress.stage, progress.progress);
+    const endpointReady = Boolean(preflight?.pythonReachable && preflight?.targetEndpointReachable);
+    const endpointState: AuditStepState = preflight
+      ? endpointReady
+        ? 'complete'
+        : 'error'
+      : this.stepState(stageRank, 2, failed, completed);
+
+    return [
+      {
+        label: 'Audit started',
+        detail: 'The run request reached the governance workflow.',
+        state: this.stepState(stageRank, 1, failed, completed)
+      },
+      {
+        label: 'Endpoint connected',
+        detail: preflight?.message ?? 'Checking Python and target endpoint readiness.',
+        state: endpointState
+      },
+      {
+        label: 'Test cases generation',
+        detail: 'Regulation context is converted into audit scenarios.',
+        state: this.stepState(stageRank, 3, failed, completed)
+      },
+      {
+        label: 'Model testing',
+        detail: 'The selected model endpoint is receiving audit prompts.',
+        state: this.stepState(stageRank, 4, failed, completed)
+      },
+      {
+        label: 'Getting responses',
+        detail: 'Target model outputs are being collected for review.',
+        state: this.stepState(stageRank, 5, failed, completed)
+      },
+      {
+        label: 'Evaluation',
+        detail: 'Responses are graded and final findings are compiled.',
+        state: this.stepState(stageRank, 6, failed, completed)
+      }
+    ];
   });
   protected readonly qualityChecks = computed(() => {
     const snapshot = this.formSnapshot();
@@ -263,6 +322,28 @@ export class AuditConfigPageComponent {
     return this.form.controls.connectionType.value === connectionType;
   }
 
+  protected formatStage(stage: string): string {
+    return stage
+      .replace(/[_-]+/g, ' ')
+      .replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1));
+  }
+
+  protected stepIcon(state: string): string {
+    if (state === 'complete') {
+      return 'OK';
+    }
+
+    if (state === 'error') {
+      return '!';
+    }
+
+    if (state === 'active') {
+      return '...';
+    }
+
+    return '';
+  }
+
   private async ensureModelUploaded(force = false): Promise<void> {
     if (this.form.controls.connectionType.value !== 'upload') {
       return;
@@ -346,5 +427,124 @@ export class AuditConfigPageComponent {
       modelName: rawValue.modelName.trim() || null,
       localModelName: rawValue.localModelName.trim() || null
     };
+  }
+
+  private stepState(
+    currentRank: number,
+    stepRank: number,
+    failed: boolean,
+    completed: boolean
+  ): AuditStepState {
+    if (completed) {
+      return 'complete';
+    }
+
+    if (failed) {
+      if (currentRank > stepRank) {
+        return 'complete';
+      }
+
+      return currentRank === stepRank ? 'error' : 'pending';
+    }
+
+    if (currentRank === stepRank) {
+      return 'active';
+    }
+
+    return currentRank > stepRank ? 'complete' : 'pending';
+  }
+
+  private stageRank(stage: string, progress = 0): number {
+    if (stage === 'progress_monitor_retrying') {
+      if (progress >= 82) {
+        return 6;
+      }
+
+      if (progress >= 77) {
+        return 5;
+      }
+
+      if (progress >= 55) {
+        return 4;
+      }
+
+      if (progress >= 10) {
+        return 3;
+      }
+
+      return 2;
+    }
+
+    const ranks: Record<string, number> = {
+      idle: 0,
+      checking_connections: 1,
+      connections_ready: 2,
+      configured: 2,
+      starting: 1,
+      preparing: 3,
+      regulation_context: 3,
+      retrieval: 3,
+      generating_tests: 3,
+      calling_target_model: 4,
+      collecting_response: 5,
+      grading: 6,
+      compiling_results: 6,
+      statistical_governance: 6,
+      saving_results: 6,
+      completed: 7,
+      failed: 0
+    };
+
+    return ranks[stage] ?? 0;
+  }
+
+  private failedStageRank(stage: string, message: string, progress: number): number {
+    const knownRank = this.stageRank(stage, progress);
+    if (knownRank > 0) {
+      return knownRank;
+    }
+
+    const normalizedMessage = message.toLowerCase();
+    if (normalizedMessage.includes('target model') || normalizedMessage.includes('api error')) {
+      return 4;
+    }
+
+    if (normalizedMessage.includes('response') || normalizedMessage.includes('json')) {
+      return 5;
+    }
+
+    if (normalizedMessage.includes('grading') || normalizedMessage.includes('evaluation')) {
+      return 6;
+    }
+
+    if (normalizedMessage.includes('regulation') || normalizedMessage.includes('test case')) {
+      return 3;
+    }
+
+    if (
+      normalizedMessage.includes('python') ||
+      normalizedMessage.includes('endpoint') ||
+      normalizedMessage.includes('connection')
+    ) {
+      return 2;
+    }
+
+    if (progress >= 82) {
+      return 6;
+    }
+
+    if (progress >= 77) {
+      return 5;
+    }
+
+    if (progress >= 55) {
+      return 4;
+    }
+
+    if (progress >= 10) {
+      return 3;
+    }
+
+    return 2;
   }
 }

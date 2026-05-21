@@ -88,6 +88,7 @@ export interface RegulationUploadSummary {
   indexedArtifacts: number;
   sourceNames: string[];
   indexedAt: string;
+  uploadedEntries?: RegulationLibraryEntry[];
 }
 
 export interface RegulationLibraryEntry {
@@ -118,9 +119,29 @@ export interface UploadedModelBundle {
   fileName: string;
   status: string;
   message: string;
+  modelAuditId: number | null;
+  modelZipUrl: string | null;
   detectedArtifacts: unknown;
   modelMetadata: unknown;
   modelInspection: unknown;
+}
+
+export interface AuditProgress {
+  status: 'idle' | 'running' | 'completed' | 'failed' | string;
+  stage: string;
+  progress: number;
+  message: string;
+  updatedAt: string | null;
+  lastError: string | null;
+}
+
+export interface AuditPreflight {
+  pythonReachable: boolean;
+  targetEndpointReachable: boolean;
+  targetStatusCode: number | null;
+  targetStatus: string;
+  message: string;
+  checkedAt: string | null;
 }
 
 export interface AuditResultItem {
@@ -133,6 +154,33 @@ export interface AuditResultItem {
   compliance: number;
   accuracy: number;
   reasoning: string;
+}
+
+export interface StatisticalRuleResult {
+  metricName: string;
+  operator: string;
+  thresholdMin: number | null;
+  thresholdMax: number | null;
+  actualValue: number | null;
+  status: string;
+  severity: string;
+}
+
+export interface HybridValidationSummary {
+  overallStatus: string;
+  fairnessMetrics: Record<string, unknown>;
+  fairnessMatrices: Record<string, unknown>;
+  ruleResults: StatisticalRuleResult[];
+}
+
+export interface DeterministicDatasetSummary {
+  rowCount: number;
+  totalRowsEvaluated: number;
+  previewRowLimit: number;
+  previewRowCount: number;
+  sourceMode: string;
+  truncated: boolean;
+  rows: Record<string, unknown>[];
 }
 
 export interface AuditReportSummary {
@@ -173,6 +221,10 @@ export interface CurrentAuditResponse {
   };
   results: AuditResultItem[];
   warnings: string[];
+  hybridValidation: HybridValidationSummary | null;
+  deterministicDataset: DeterministicDatasetSummary | null;
+  statisticalGovernance: unknown;
+  metricGlossary: unknown;
 }
 
 export interface SavedAuditReport {

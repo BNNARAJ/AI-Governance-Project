@@ -5,6 +5,7 @@ import { BackendCapabilitiesService } from '../../core/services/backend-capabili
 import { PageHeaderComponent } from '../../shared/ui/page-header.component';
 import { BlockedFeatureCardComponent } from '../../shared/ui/blocked-feature-card.component';
 import { SurfaceCardComponent } from '../../shared/ui/surface-card.component';
+import { RegulationLibraryEntry } from '../../core/models/governance.models';
 
 @Component({
   selector: 'app-regulation-upload-page',
@@ -76,8 +77,8 @@ export class RegulationUploadPageComponent {
     }
   }
 
-  protected openDocument(downloadUrl: string): void {
-    window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+  protected openDocument(entry: RegulationLibraryEntry): void {
+    window.open(entry.downloadUrl ?? entry.fileUrl, '_blank', 'noopener,noreferrer');
   }
 
   protected async removeFromIndex(entryId: string): Promise<void> {

@@ -183,6 +183,34 @@
       <div>
         <strong>{{ runExperience().title }}</strong>
         <p>{{ runExperience().detail }}</p>
+        @if (workspace.auditRunning()) {
+          <div class="progress-meter" aria-label="Audit progress">
+            <span [style.width.%]="auditProgress().progress"></span>
+          </div>
+          <small class="progress-caption">
+            {{ auditProgress().progress }}% complete - {{ formatStage(auditProgress().stage) }}
+          </small>
+          @if (auditPreflight(); as preflight) {
+            <small class="progress-caption">
+              Python {{ preflight.pythonReachable ? 'connected' : 'not reachable' }}
+              - Target {{ preflight.targetEndpointReachable ? 'connected' : 'not reachable' }}
+              @if (preflight.targetStatusCode) {
+                <span>- HTTP {{ preflight.targetStatusCode }}</span>
+              }
+            </small>
+          }
+          <div class="audit-stepper" aria-label="Audit execution stages">
+            @for (step of auditSteps(); track step.label) {
+              <article class="audit-step" [attr.data-state]="step.state">
+                <span class="audit-step__marker" aria-hidden="true">{{ stepIcon(step.state) }}</span>
+                <div>
+                  <strong>{{ step.label }}</strong>
+                  <p>{{ step.detail }}</p>
+                </div>
+              </article>
+            }
+          </div>
+        }
       </div>
     </div>
 
@@ -196,7 +224,7 @@
         [disabled]="!runAvailable || workspace.auditRunning()"
         (click)="runAudit()"
       >
-        {{ workspace.auditRunning() ? 'Running audit...' : 'Run governance audit' }}
+        {{ workspace.auditRunning() ? auditProgress().progress + '% complete' : 'Run governance audit' }}
       </button>
     </div>
   </app-surface-card>

@@ -59,9 +59,7 @@ class GeminiService:
         for attempt in range(max_retries):
             try:
                 model = self._get_model()
-                # Run the blocking call in a thread or just hope for the best
-                # For now, keeping as is but using async sleep for retries
-                response = model.generate_content(prompt)
+                response = await asyncio.to_thread(model.generate_content, prompt)
                 text = response.text
                 self._cache_set(prompt, text)
                 return text

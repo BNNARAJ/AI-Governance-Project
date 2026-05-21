@@ -3,6 +3,8 @@ import { firstValueFrom } from 'rxjs';
 import {
   AdminOverview,
   AuditConfiguration,
+  AuditPreflight,
+  AuditProgress,
   CurrentAuditResponse,
   DashboardSnapshot,
   RegulationLibraryEntry,
@@ -31,9 +33,18 @@ export class GovernanceWorkspaceService {
   readonly adminOverview = signal<AdminOverview | null>(null);
   readonly draftConfiguration = signal<AuditConfiguration | null>(null);
   readonly latestAuditResponse = signal<CurrentAuditResponse | null>(null);
+  readonly auditPreflight = signal<AuditPreflight | null>(null);
   readonly auditHistory = signal<SavedAuditReport[]>([]);
   readonly regulationLibrary = signal<RegulationLibraryEntry[]>([]);
   readonly lastUploadSummary = signal<RegulationUploadSummary | null>(null);
+  readonly auditProgress = signal<AuditProgress>({
+    status: 'idle',
+    stage: 'idle',
+    progress: 0,
+    message: 'No audit running.',
+    updatedAt: null,
+    lastError: null
+  });
   readonly lastError = signal<string | null>(null);
 
   readonly dashboardLoading = signal(false);
@@ -44,6 +55,8 @@ export class GovernanceWorkspaceService {
   readonly regulationLibraryLoading = signal(false);
   readonly reportSaving = signal(false);
   readonly uploadRunning = signal(false);
+  private auditStartedAtMs = 0;
+  private progressPollFailures = 0;
 
   readonly overallBusy = computed(
     () =>
@@ -185,23 +198,132 @@ export class GovernanceWorkspaceService {
   async runAudit(configuration: AuditConfiguration): Promise<CurrentAuditResponse> {
     this.auditRunning.set(true);
     this.lastError.set(null);
+    this.auditPreflight.set(null);
+    this.auditStartedAtMs = Date.now();
+    this.progressPollFailures = 0;
+    this.auditProgress.set({
+      status: 'running',
+      stage: 'checking_connections',
+      progress: 2,
+      message: 'Checking Python service and target API endpoint before starting the audit.',
+      updatedAt: new Date().toISOString(),
+      lastError: null
+    });
+    let progressTimer: number | null = null;
 
     try {
+      const preflight = await firstValueFrom(this.auditApi.preflight(configuration));
+      this.auditPreflight.set(preflight);
+      if (!preflight.pythonReachable || !preflight.targetEndpointReachable) {
+        throw new Error(preflight.message);
+      }
+
+      this.auditProgress.set({
+        status: 'running',
+        stage: 'connections_ready',
+        progress: 8,
+        message: preflight.message,
+        updatedAt: preflight.checkedAt ?? new Date().toISOString(),
+        lastError: null
+      });
+
+      progressTimer = window.setInterval(() => {
+        void this.refreshAuditProgress().catch(() => this.handleProgressPollFailure());
+      }, 1500);
+
       const response = await firstValueFrom(this.auditApi.runAudit(configuration));
       this.draftConfiguration.set(configuration);
       this.latestAuditResponse.set(response);
+      this.auditProgress.update((current) => ({
+        ...current,
+        status: 'completed',
+        stage: 'completed',
+        progress: 100,
+        message: 'Audit completed successfully.',
+        lastError: null
+      }));
       await this.loadAuditHistory(true).catch(() => {
         // History is optional and should not block the latest result.
       });
       return response;
     } catch (error) {
-      this.lastError.set(
-        error instanceof Error ? error.message : 'Unable to run audit.'
-      );
+      const message = error instanceof Error ? error.message : 'Unable to run audit.';
+      this.lastError.set(message);
+      await this.refreshAuditProgress().catch(() => {
+        this.auditProgress.set({
+          status: 'failed',
+          stage: 'failed',
+          progress: 100,
+          message,
+          updatedAt: new Date().toISOString(),
+          lastError: message
+        });
+      });
+      if (this.auditProgress().status !== 'failed') {
+        this.auditProgress.set({
+          status: 'failed',
+          stage: 'failed',
+          progress: 100,
+          message,
+          updatedAt: new Date().toISOString(),
+          lastError: message
+        });
+      }
       throw error;
     } finally {
+      if (progressTimer !== null) {
+        window.clearInterval(progressTimer);
+      }
       this.auditRunning.set(false);
     }
+  }
+
+  async refreshAuditProgress(): Promise<void> {
+    const progress = await firstValueFrom(this.auditApi.loadProgress());
+    const previous = this.auditProgress();
+    const shouldPreserveStage =
+      progress.status === 'failed' &&
+      progress.stage === 'failed' &&
+      previous.status === 'running' &&
+      previous.stage !== 'failed';
+
+    this.auditProgress.set(
+      shouldPreserveStage
+        ? {
+            ...progress,
+            stage: previous.stage,
+            progress: Math.max(progress.progress, previous.progress)
+          }
+        : progress
+    );
+    this.progressPollFailures = 0;
+  }
+
+  private handleProgressPollFailure(): void {
+    this.progressPollFailures += 1;
+    const elapsedSeconds = Math.max(1, Math.floor((Date.now() - this.auditStartedAtMs) / 1000));
+
+    this.auditProgress.update((current) => {
+      if (current.status === 'completed' || current.status === 'failed') {
+        return current;
+      }
+
+      const estimatedProgress = Math.min(
+        90,
+        Math.max(current.progress, 8 + Math.floor(elapsedSeconds / 10) * 4)
+      );
+
+      return {
+        ...current,
+        status: 'running',
+        stage: 'progress_monitor_retrying',
+        progress: estimatedProgress,
+        message:
+          `Audit request is still running. Progress monitor is retrying ` +
+          `(${elapsedSeconds}s elapsed, ${this.progressPollFailures} retry${this.progressPollFailures === 1 ? '' : 'ies'}).`,
+        updatedAt: new Date().toISOString()
+      };
+    });
   }
 
   async loadAdminOverview(force = false): Promise<void> {

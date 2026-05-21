@@ -203,7 +203,7 @@
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 0.85rem;
-  align-items: center;
+  align-items: start;
   padding: 1rem 1.05rem;
   border-radius: 1rem;
   border: 1px solid var(--line-soft);
@@ -237,6 +237,121 @@
   margin: 0.3rem 0 0;
   color: var(--muted-ink);
   line-height: 1.6;
+}
+
+.progress-meter {
+  height: 0.58rem;
+  margin-top: 0.75rem;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid rgba(31, 139, 127, 0.14);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.progress-meter span {
+  display: block;
+  height: 100%;
+  min-width: 0.35rem;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, var(--accent), var(--accent-strong)),
+    rgba(31, 139, 127, 0.24);
+  transition: width 420ms ease;
+}
+
+.progress-caption {
+  display: inline-block;
+  margin-top: 0.45rem;
+  color: var(--accent-strong);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.audit-stepper {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+}
+
+.audit-step {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: start;
+  padding: 0.72rem;
+  border: 1px solid rgba(31, 139, 127, 0.14);
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.62);
+  opacity: 0.72;
+  transition:
+    transform var(--motion-snappy),
+    border-color var(--motion-snappy),
+    background var(--motion-snappy),
+    opacity var(--motion-snappy);
+}
+
+.audit-step[data-state='active'] {
+  opacity: 1;
+  border-color: rgba(31, 139, 127, 0.42);
+  background:
+    linear-gradient(135deg, rgba(31, 139, 127, 0.13), rgba(255, 255, 255, 0.76));
+  transform: translateY(-1px);
+}
+
+.audit-step[data-state='complete'] {
+  opacity: 1;
+  border-color: rgba(31, 139, 127, 0.24);
+}
+
+.audit-step[data-state='error'] {
+  opacity: 1;
+  border-color: rgba(173, 74, 64, 0.36);
+  background: rgba(173, 74, 64, 0.08);
+}
+
+.audit-step__marker {
+  width: 1.45rem;
+  height: 1.45rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(19, 39, 51, 0.08);
+  color: var(--muted-ink);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.audit-step[data-state='active'] .audit-step__marker {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #fff;
+  animation: soft-pulse 1.4s ease-in-out infinite;
+}
+
+.audit-step[data-state='complete'] .audit-step__marker {
+  background: var(--accent-strong);
+  color: #fff;
+}
+
+.audit-step[data-state='error'] .audit-step__marker {
+  background: #ad4a40;
+  color: #fff;
+}
+
+.audit-step strong {
+  display: block;
+  color: var(--ink-strong);
+  font: 800 0.78rem / 1.2 var(--font-display);
+}
+
+.audit-step p {
+  margin: 0.25rem 0 0;
+  color: var(--muted-ink);
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .section-actions {
@@ -391,7 +506,8 @@
 
 @media (max-width: 720px) {
   .field-grid,
-  .summary-metrics {
+  .summary-metrics,
+  .audit-stepper {
     grid-template-columns: 1fr;
   }
 
