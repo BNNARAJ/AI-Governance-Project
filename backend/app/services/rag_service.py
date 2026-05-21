@@ -250,10 +250,11 @@ class RAGService:
 
         return documents
 
-    def index_pdf(self, file_path: str) -> int:
+    def index_pdf(self, file_path: str, source_key: str | None = None) -> int:
         loader = PyPDFLoader(file_path)
         pages = loader.load()
         chunks: list[Document] = []
+        source_file = source_key or os.path.basename(file_path)
 
         for page_number, page in enumerate(pages, start=1):
             normalized = self._normalize_text(page.page_content)
@@ -262,7 +263,8 @@ class RAGService:
             metadata = dict(page.metadata or {})
             metadata.update(
                 {
-                    "source_file": os.path.basename(file_path),
+                    "source_file": source_file,
+                    "original_file": os.path.basename(file_path),
                     "page_number": page_number,
                 }
             )
@@ -276,20 +278,61 @@ class RAGService:
             embedding_function=self._get_embeddings(),
             collection_name="regulations",
         )
+        self.delete_source(source_file, vector_store=vector_store)
         vector_store.add_documents(chunks)
         if hasattr(vector_store, "persist"):
             vector_store.persist()
         return len(chunks)
 
-    def query_regulations(self, query: str, n_results: int = 3) -> str:
+    def delete_source(self, source_file: str, vector_store: Chroma | None = None) -> int:
+        store = vector_store or Chroma(
+            persist_directory=self.persist_directory,
+            embedding_function=self._get_embeddings(),
+            collection_name="regulations",
+        )
+        collection = getattr(store, "_collection", None)
+        if collection is None:
+            return 0
+
+        existing = collection.get(where={"source_file": source_file})
+        ids = existing.get("ids", []) if isinstance(existing, dict) else []
+        if not ids:
+            return 0
+
+        collection.delete(ids=ids)
+        if hasattr(store, "persist"):
+            store.persist()
+        return len(ids)
+
+    def query_regulations(
+        self,
+        query: str,
+        n_results: int = 3,
+        source_keys: list[str] | None = None,
+    ) -> str:
         vector_store = Chroma(
             persist_directory=self.persist_directory,
             embedding_function=self._get_embeddings(),
             collection_name="regulations"
         )
-        results = vector_store.similarity_search(query, k=n_results)
+        search_filter = None
+        if source_keys:
+            search_filter = (
+                {"source_file": source_keys[0]}
+                if len(source_keys) == 1
+                else {"source_file": {"$in": source_keys}}
+            )
+
+        try:
+            results = vector_store.similarity_search(query, k=n_results, filter=search_filter)
+        except Exception:
+            results = vector_store.similarity_search(query, k=max(n_results, 12))
+            if source_keys:
+                allowed = set(source_keys)
+                results = [item for item in results if (item.metadata or {}).get("source_file") in allowed]
+
         if not results:
-            return "No regulations indexed yet. Please upload PDF documents first."
+            return "No matching regulations indexed for this review. Please activate the right PDF document first."
 
         formatted = []
         for r in results:

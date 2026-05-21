@@ -1,0 +1,367 @@
+<app-page-header
+  eyebrow="Results"
+  title="Audit summary"
+  subtitle="Review the score, risk level, and key findings from the latest run."
+  icon="results"
+>
+  <a class="button button--secondary" routerLink="/audit-config">New review</a>
+</app-page-header>
+
+@if (response(); as audit) {
+  <section class="score-grid">
+    <app-surface-card
+      eyebrow="Summary"
+      title="{{ audit.status }}"
+      subtitle="{{ audit.modelUsed }}"
+    >
+      <div class="summary-hero">
+        <div class="summary-hero__score">
+          <strong>{{ audit.score | number: '1.1-1' }}</strong>
+          <span>Overall score</span>
+          <small [attr.data-tone]="scoreTone(audit.score)">{{ scoreLabel(audit.score) }}</small>
+        </div>
+
+        <div class="summary-hero__meta">
+          <article>
+            <strong>Risk level</strong>
+            <p>{{ audit.riskLevel }}</p>
+          </article>
+          <article>
+            <strong>Audit ID</strong>
+            <p>{{ audit.auditId }}</p>
+          </article>
+          <article>
+            <strong>Recorded</strong>
+            <p>{{ audit.timestamp | date: 'MMM d, y - h:mm a' }}</p>
+          </article>
+          <article>
+            <strong>Policy violations</strong>
+            <p>{{ audit.policyViolations }}</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="summary-detail-grid">
+        <div class="summary-detail-card">
+          <strong>Factors tested</strong>
+          <div class="chip-list">
+            @for (factor of audit.summary.varianceFactors; track factor) {
+              <span class="chip">{{ factor }}</span>
+            }
+          </div>
+        </div>
+
+        <div class="summary-detail-card">
+          <strong>Execution context</strong>
+          <p>{{ audit.summary.testCount }} test cases were executed for this run.</p>
+          @if (audit.llmModelName) {
+            <span class="context-note">Model: {{ audit.llmModelName }}</span>
+          } @else {
+            <span class="context-note">Model identifier was not supplied for this run.</span>
+          }
+        </div>
+      </div>
+    </app-surface-card>
+  </section>
+
+  <section class="dashboard-grid">
+    <app-surface-card
+      eyebrow="Scorecard"
+      title="Fairness scorecard"
+      subtitle="Compare the core scoring dimensions from the completed audit."
+    >
+      <div class="scorecard-grid">
+        <article class="scorecard-tile scorecard-tile--overall" [attr.data-tone]="scoreTone(audit.score)">
+          <span>Overall</span>
+          <strong>{{ audit.score | number: '1.1-1' }}</strong>
+          <small>{{ scoreLabel(audit.score) }}</small>
+        </article>
+        <article class="scorecard-tile" [attr.data-tone]="scoreTone(audit.summary.avgFairness)">
+          <span>Fairness</span>
+          <strong>{{ audit.summary.avgFairness | number: '1.1-1' }}</strong>
+          <small>{{ scoreLabel(audit.summary.avgFairness) }}</small>
+        </article>
+        <article class="scorecard-tile" [attr.data-tone]="scoreTone(audit.summary.avgCompliance)">
+          <span>Compliance</span>
+          <strong>{{ audit.summary.avgCompliance | number: '1.1-1' }}</strong>
+          <small>{{ scoreLabel(audit.summary.avgCompliance) }}</small>
+        </article>
+        <article class="scorecard-tile" [attr.data-tone]="scoreTone(audit.summary.avgAccuracy)">
+          <span>Accuracy</span>
+          <strong>{{ audit.summary.avgAccuracy | number: '1.1-1' }}</strong>
+          <small>{{ scoreLabel(audit.summary.avgAccuracy) }}</small>
+        </article>
+      </div>
+    </app-surface-card>
+
+    <app-surface-card
+      eyebrow="Findings"
+      title="Review observations"
+      subtitle="The strongest signals surfaced in the latest audit run."
+    >
+      @if (audit.warnings.length > 0) {
+        <div class="warning-stack">
+          @for (warning of audit.warnings; track warning) {
+            <p class="warning-note">{{ warning }}</p>
+          }
+        </div>
+      }
+
+      @if (audit.findings.length > 0) {
+        <ul class="findings-list">
+          @for (finding of audit.findings; track finding) {
+            <li>{{ finding }}</li>
+          }
+        </ul>
+      } @else {
+        <p class="empty-copy">No notable findings surfaced in this review.</p>
+      }
+    </app-surface-card>
+
+    <app-surface-card
+      eyebrow="Reports"
+      title="History and exports"
+      subtitle="Save the latest report and download prior report files."
+    >
+      @if (reportAvailable) {
+        <div class="report-actions">
+          <div class="report-actions__toolbar">
+            <button
+              type="button"
+              class="button button--primary"
+              [disabled]="workspace.reportSaving()"
+              (click)="saveLatestReport()"
+            >
+              {{ workspace.reportSaving() ? 'Saving report...' : 'Save latest report' }}
+            </button>
+
+            @if (latestSavedReportId(); as latestId) {
+              <button
+                type="button"
+                class="button button--secondary"
+                (click)="downloadReport(latestId, auditHistory()[0]?.modelDescription ?? audit.modelUsed)"
+              >
+                Download latest saved report
+              </button>
+            }
+          </div>
+
+          @if (actionNotice()) {
+            <p class="action-notice">{{ actionNotice() }}</p>
+          }
+
+          @if (auditHistory().length > 0) {
+            <div class="history-table">
+              <div class="history-table__head">
+                <span>Model scope</span>
+                <span>Fairness</span>
+                <span>Compliance</span>
+                <span>Accuracy</span>
+                <span>Saved</span>
+                <span>Download</span>
+              </div>
+
+              @for (entry of auditHistory(); track entry.id) {
+                <div class="history-table__row">
+                  <strong>{{ entry.modelDescription }}</strong>
+                  <span>{{ entry.fairnessScore | number: '1.1-1' }}</span>
+                  <span>{{ entry.complianceScore | number: '1.1-1' }}</span>
+                  <span>{{ entry.accuracyScore | number: '1.1-1' }}</span>
+                  <span>{{ entry.createdAt | date: 'MMM d, y - h:mm a' }}</span>
+                  <button
+                    type="button"
+                    class="button button--secondary"
+                    (click)="downloadReport(entry.id, entry.modelDescription)"
+                  >
+                    Download
+                  </button>
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="empty-copy">Save the latest run to create the first downloadable report.</p>
+          }
+        </div>
+      } @else {
+        <p class="empty-copy">Report tools are not available for this environment.</p>
+      }
+    </app-surface-card>
+  </section>
+
+  <section class="score-grid">
+    <app-surface-card
+      eyebrow="Detailed results"
+      title="Test-by-test outcomes"
+      subtitle="Review the prompt, actual response, and audit grading for each scenario."
+    >
+      @if (audit.results.length > 0) {
+        <div class="result-list">
+          @for (result of audit.results; track result.id) {
+            <details class="result-item">
+              <summary class="result-item__summary">
+                <div class="result-item__meta">
+                  <strong>{{ result.prompt }}</strong>
+                  <div class="result-item__badges">
+                    <span class="risk-chip">{{ result.riskArea }}</span>
+                    <span class="mini-score" [attr.data-tone]="scoreTone(result.fairness)">F {{ result.fairness | number: '1.1-1' }}</span>
+                    <span class="mini-score" [attr.data-tone]="scoreTone(result.compliance)">C {{ result.compliance | number: '1.1-1' }}</span>
+                    <span class="mini-score" [attr.data-tone]="scoreTone(result.accuracy)">A {{ result.accuracy | number: '1.1-1' }}</span>
+                  </div>
+                </div>
+              </summary>
+
+              <div class="result-item__detail">
+                <div class="result-copy">
+                  <span>Expected behavior</span>
+                  <p>{{ result.expectedBehavior }}</p>
+                </div>
+                <div class="result-copy">
+                  <span>Actual response</span>
+                  <p>{{ result.actualResponse }}</p>
+                </div>
+                <div class="result-copy">
+                  <span>Audit reasoning</span>
+                  <p>{{ result.reasoning || 'No additional reasoning was supplied.' }}</p>
+                </div>
+              </div>
+            </details>
+          }
+        </div>
+      } @else {
+        <p class="empty-copy">Detailed test results were not returned for this audit.</p>
+      }
+    </app-surface-card>
+  </section>
+
+  <section class="score-grid">
+    <app-surface-card
+      eyebrow="Reports"
+      title="History and exports"
+      subtitle="Save the latest report and download prior report files."
+    >
+      @if (reportAvailable) {
+        <div class="report-actions">
+          <div class="report-actions__toolbar">
+            <button
+              type="button"
+              class="button button--primary"
+              [disabled]="workspace.reportSaving()"
+              (click)="saveLatestReport()"
+            >
+              {{ workspace.reportSaving() ? 'Saving report...' : 'Save latest report' }}
+            </button>
+
+            @if (latestSavedReportId(); as latestId) {
+              <button
+                type="button"
+                class="button button--secondary"
+                (click)="downloadReport(latestId, auditHistory()[0]?.modelDescription ?? audit.modelUsed)"
+              >
+                Download latest saved report
+              </button>
+            }
+          </div>
+
+          @if (actionNotice()) {
+            <p class="action-notice">{{ actionNotice() }}</p>
+          }
+
+          @if (auditHistory().length > 0) {
+            <div class="history-table">
+              <div class="history-table__head">
+                <span>Model scope</span>
+                <span>Fairness</span>
+                <span>Compliance</span>
+                <span>Accuracy</span>
+                <span>Saved</span>
+                <span>Download</span>
+              </div>
+
+              @for (entry of auditHistory(); track entry.id) {
+                <div class="history-table__row">
+                  <strong>{{ entry.modelDescription }}</strong>
+                  <span>{{ entry.fairnessScore | number: '1.1-1' }}</span>
+                  <span>{{ entry.complianceScore | number: '1.1-1' }}</span>
+                  <span>{{ entry.accuracyScore | number: '1.1-1' }}</span>
+                  <span>{{ entry.createdAt | date: 'MMM d, y - h:mm a' }}</span>
+                  <button
+                    type="button"
+                    class="button button--secondary"
+                    (click)="downloadReport(entry.id, entry.modelDescription)"
+                  >
+                    Download
+                  </button>
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="empty-copy">Save the latest run to create the first downloadable report.</p>
+          }
+        </div>
+      } @else {
+        <p class="empty-copy">Report tools are not available for this environment.</p>
+      }
+    </app-surface-card>
+  </section>
+} @else {
+  <section class="dashboard-grid">
+    <app-surface-card
+      eyebrow="Results"
+      title="No active audit in this session"
+      subtitle="Run a new audit from Audit Studio to populate the live summary."
+    >
+      <div class="empty-state">
+        <strong>No audit has been run yet.</strong>
+        <p>Start an audit from Audit Studio to populate this page.</p>
+      </div>
+    </app-surface-card>
+
+    <app-surface-card
+      eyebrow="Reports"
+      title="Saved report history"
+      subtitle="Open previous report files even when no current session result is loaded."
+    >
+      @if (reportAvailable) {
+        <div class="report-actions">
+          @if (actionNotice()) {
+            <p class="action-notice">{{ actionNotice() }}</p>
+          }
+
+          @if (auditHistory().length > 0) {
+            <div class="history-table">
+              <div class="history-table__head">
+                <span>Model scope</span>
+                <span>Fairness</span>
+                <span>Compliance</span>
+                <span>Accuracy</span>
+                <span>Saved</span>
+                <span>Download</span>
+              </div>
+
+              @for (entry of auditHistory(); track entry.id) {
+                <div class="history-table__row">
+                  <strong>{{ entry.modelDescription }}</strong>
+                  <span>{{ entry.fairnessScore | number: '1.1-1' }}</span>
+                  <span>{{ entry.complianceScore | number: '1.1-1' }}</span>
+                  <span>{{ entry.accuracyScore | number: '1.1-1' }}</span>
+                  <span>{{ entry.createdAt | date: 'MMM d, y - h:mm a' }}</span>
+                  <button
+                    type="button"
+                    class="button button--secondary"
+                    (click)="downloadReport(entry.id, entry.modelDescription)"
+                  >
+                    Download
+                  </button>
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="empty-copy">No saved reports are available yet.</p>
+          }
+        </div>
+      } @else {
+        <p class="empty-copy">Report tools are not available for this environment.</p>
+      }
+    </app-surface-card>
+  </section>
+}

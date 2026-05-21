@@ -78,10 +78,12 @@ class AuditConfig(BaseModel):
     api_mode: str = "prompt"  # "prompt" or "features"
     api_url: Optional[str] = None
     api_key: Optional[str] = None
+    model_name: Optional[str] = None
     local_file_path: Optional[str] = None
     custom_feature_names: Optional[List[str]] = None
     fairness_data_mode: str = "dummy"  # "dummy" | "upload"
     fairness_data_file: Optional[str] = None
+    regulation_source_keys: Optional[List[str]] = None
 
 class LoginRequest(BaseModel):
     username: str
@@ -441,19 +443,35 @@ async def monitor_stream():
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.post("/upload-regulations")
-async def upload_regulations(files: List[UploadFile] = File(...)):
+async def upload_regulations(files: List[UploadFile] = File(...), source_keys: Optional[List[str]] = Form(None)):
     upload_dir = os.path.join(project_dir, "uploads", "regulations")
     os.makedirs(upload_dir, exist_ok=True)
     
     total_chunks = 0
-    for file in files:
+    indexed = []
+    for index, file in enumerate(files):
         file_path = os.path.join(upload_dir, file.filename)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        chunks = rag_service.index_pdf(file_path)
+        source_key = source_keys[index] if source_keys and index < len(source_keys) else file.filename
+        chunks = rag_service.index_pdf(file_path, source_key=source_key)
         total_chunks += chunks
+        indexed.append({"file_name": file.filename, "source_key": source_key, "chunks": chunks})
     
-    return {"message": f"Successfully uploaded and indexed {len(files)} files", "total_chunks": total_chunks}
+    return {
+        "message": f"Successfully uploaded and indexed {len(files)} files",
+        "total_chunks": total_chunks,
+        "indexed": indexed,
+    }
+
+@app.delete("/regulations/{source_key}")
+async def delete_regulation(source_key: str):
+    deleted_chunks = rag_service.delete_source(source_key)
+    return {
+        "message": "Regulation removed from active index",
+        "source_key": source_key,
+        "deleted_chunks": deleted_chunks,
+    }
 
 @app.post("/configure-audit")
 async def configure_audit(config: AuditConfig):
@@ -482,6 +500,56 @@ async def run_audit():
             if current_config.connection_type == "api" and (current_config.api_mode or "prompt").strip().lower() == "features":
                 return "ml"
             return "unknown"
+
+        def _looks_like_chat_completions_url(url: Optional[str]) -> bool:
+            if not url:
+                return False
+            normalized = url.strip().lower()
+            return "chat/completions" in normalized or normalized.endswith("/responses")
+
+        def _build_prompt_request(prompt: str) -> dict[str, Any]:
+            model_name = getattr(current_config, "model_name", None)
+            model_description = (
+                getattr(current_config, "model_description", "") or "the configured AI system"
+            ).strip()
+            if _looks_like_chat_completions_url(current_config.api_url) and model_name:
+                return {
+                    "model": model_name,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are the target model being audited. Behave as this system: "
+                                f"{model_description}. Reply directly to each test prompt using "
+                                "the intended business context. Keep responses concise, specific, "
+                                "and limited to the information needed for evaluation."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                }
+
+            return {"prompt": prompt}
+
+        def _extract_api_text(payload: Any) -> str:
+            if isinstance(payload, dict):
+                choices = payload.get("choices")
+                if isinstance(choices, list) and choices:
+                    first_choice = choices[0] or {}
+                    if isinstance(first_choice, dict):
+                        message = first_choice.get("message")
+                        if isinstance(message, dict) and message.get("content"):
+                            return str(message.get("content"))
+                        if first_choice.get("text"):
+                            return str(first_choice.get("text"))
+
+                if payload.get("output_text"):
+                    return str(payload.get("output_text"))
+
+                if payload.get("prediction"):
+                    return str(payload.get("prediction"))
+
+            return str(payload)
 
         def _assess_ml_readiness(model_type: str, feature_names_value: Optional[List[str]]) -> dict[str, Any]:
             if model_type == "llm":
@@ -946,6 +1014,16 @@ async def run_audit():
         total_fairness = 0
         total_compliance = 0
         total_accuracy = 0
+        regulation_source_keys = [
+            str(item).strip()
+            for item in (current_config.regulation_source_keys or [])
+            if str(item).strip()
+        ]
+        context = rag_service.query_regulations(
+            current_config.model_description or "AI governance review",
+            n_results=4,
+            source_keys=regulation_source_keys or None,
+        )
 
         if run_behavioral:
             gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -1050,7 +1128,12 @@ async def run_audit():
                 if current_config.connection_type == "api":
                     try:
                         api_mode = (getattr(current_config, "api_mode", "prompt") or "prompt").strip().lower()
-                        headers = {"Authorization": f"Bearer {current_config.api_key}"} if current_config.api_key else {}
+                        headers = {}
+                        if current_config.api_key:
+                            auth_value = str(current_config.api_key).strip()
+                            if not auth_value.lower().startswith("bearer "):
+                                auth_value = f"Bearer {auth_value}"
+                            headers["Authorization"] = auth_value
                         if api_mode == "features":
                             raw_features = test.get("features", {})
                             if not isinstance(raw_features, dict):
@@ -1072,17 +1155,18 @@ async def run_audit():
                                     merged[k] = v
                             if not raw_features and current_config.variance_factors:
                                 merged = model_service.apply_variance(profile, merged, current_config.variance_factors[0], i)
-                            resp = requests.post(current_config.api_url, headers=headers, json=merged, timeout=30)
+                            resp = requests.post(current_config.api_url, headers=headers, json=merged, timeout=60)
                         else:
+                            prompt_payload = _build_prompt_request(test.get("prompt", ""))
                             resp = requests.post(
                                 current_config.api_url,
                                 headers=headers,
-                                json={"prompt": test.get("prompt", "")},
-                                timeout=30,
+                                json=prompt_payload,
+                                timeout=60,
                             )
                         try:
                             j = resp.json()
-                            target_response = j.get("prediction") if isinstance(j, dict) else str(j)
+                            target_response = _extract_api_text(j)
                             if not target_response:
                                 target_response = str(j)
                         except Exception:

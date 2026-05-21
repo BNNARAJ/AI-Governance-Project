@@ -1,0 +1,205 @@
+<app-page-header
+  eyebrow="Overview"
+  title="Governance dashboard"
+  subtitle="Review the current state of regulations, audits, and recent findings."
+  icon="dashboard"
+>
+  <a class="button button--secondary" routerLink="/regulations">Open library</a>
+  <a class="button button--primary" routerLink="/audit-config">Start review</a>
+</app-page-header>
+
+@if (workspace.lastError()) {
+  <section class="empty-state" style="margin-bottom:1rem">
+    <strong>Service note</strong>
+    <p>{{ workspace.lastError() }}</p>
+  </section>
+}
+
+<section class="dashboard-hero">
+  <app-surface-card
+    eyebrow="Summary"
+    [title]="postureTitle()"
+    [subtitle]="postureCopy()"
+  >
+    <div class="hero-card__footer">
+      <span class="hero-pill">{{ dashboardAvailable ? 'Live data' : 'Preview data' }}</span>
+      <div class="hero-actions">
+        <a class="button button--secondary" routerLink="/regulations">Open library</a>
+        <a class="button button--primary" routerLink="/audit-config">Start review</a>
+      </div>
+    </div>
+  </app-surface-card>
+</section>
+
+@if (!dashboardAvailable) {
+  <section class="stats-grid">
+    <app-stat-card
+      label="Portfolio coverage"
+      value="--"
+      detail="Coverage metrics will populate as review activity and source documents are published."
+      marker="PC"
+    />
+    <app-stat-card
+      label="Review cadence"
+      value="--"
+      detail="Scheduled reviews, approvals, and escalations will roll up here for the current program."
+      marker="RC"
+    />
+    <app-stat-card
+      label="Policy readiness"
+      value="--"
+      detail="Policy indexing and evidence mapping will inform this readiness signal."
+      marker="PR"
+    />
+    <app-stat-card
+      label="Attention queue"
+      value="--"
+      detail="Priority items and exceptions will surface here once the workspace begins receiving records."
+      marker="AQ"
+      tone="warning"
+    />
+  </section>
+
+  <section class="dashboard-grid">
+    <app-surface-card
+      eyebrow="Priorities"
+      title="Start with the right inputs"
+      subtitle="Use clear source documents, focused scenarios, and a consistent review flow."
+    >
+      <ol class="ordered-list">
+        @for (priority of operatingPriorities; track priority) {
+          <li>{{ priority }}</li>
+        }
+      </ol>
+    </app-surface-card>
+
+    <app-surface-card
+      eyebrow="Next steps"
+      title="Recommended actions"
+      subtitle="Use these actions to move the current review forward."
+    >
+      <div class="launch-list">
+        @for (item of roleActions(); track item) {
+          <article class="launch-item">
+            <strong>{{ $index + 1 }}</strong>
+            <p>{{ item }}</p>
+          </article>
+        }
+      </div>
+    </app-surface-card>
+  </section>
+} @else if (workspace.dashboard(); as dashboard) {
+  <section class="stats-grid">
+    <app-stat-card
+      label="Regulation chunks"
+      [value]="dashboard.stats.indexedRegulations.toString()"
+      detail="Structure-aware indexing from uploaded policies and standards."
+      marker="RG"
+    />
+    <app-stat-card
+      label="Audits completed"
+      [value]="dashboard.stats.auditsRun.toString()"
+      detail="Total governance runs recorded in the current workspace."
+      marker="AU"
+    />
+    <app-stat-card
+      label="Average fairness"
+      [value]="dashboard.stats.avgFairness.toFixed(1)"
+      detail="Portfolio-level signal across the latest benchmarked model runs."
+      marker="FS"
+    />
+    <app-stat-card
+      label="Policy violations"
+      [value]="dashboard.stats.policyViolations.toString()"
+      detail="Cases that should be queued for reviewer escalation or remediation."
+      marker="PV"
+      tone="warning"
+    />
+  </section>
+
+  <section class="dashboard-grid">
+    <app-surface-card
+      eyebrow="Recent audits"
+      title="Execution history"
+      subtitle="A compact view of the latest audit runs and their score posture."
+    >
+      <div class="history-table">
+        <div class="history-table__head">
+          <span>Model scope</span>
+          <span>Run time</span>
+          <span>Tests</span>
+          <span>Fairness</span>
+          <span>Compliance</span>
+          <span>Accuracy</span>
+          <span>Risk</span>
+        </div>
+
+        @for (entry of dashboard.history; track entry.id) {
+          <div class="history-table__row">
+            <strong>{{ entry.modelDescription }}</strong>
+            <span>{{ entry.timestamp | date: 'MMM d, y - h:mm a' }}</span>
+            <span>{{ entry.testCount }}</span>
+            <span>{{ entry.avgFairness | number: '1.1-1' }}</span>
+            <span>{{ entry.avgCompliance | number: '1.1-1' }}</span>
+            <span>{{ entry.avgAccuracy | number: '1.1-1' }}</span>
+            <span class="risk-chip" [attr.data-risk]="entry.riskLevel.toLowerCase()">
+              {{ entry.riskLevel }}
+            </span>
+          </div>
+        }
+      </div>
+    </app-surface-card>
+
+    <app-surface-card
+      eyebrow="Next steps"
+      title="Recommended actions"
+      subtitle="Keep the current review moving with focused follow-up."
+    >
+      <div class="launch-list">
+        @for (item of roleActions(); track item) {
+          <article class="launch-item">
+            <strong>{{ $index + 1 }}</strong>
+            <p>{{ item }}</p>
+          </article>
+        }
+      </div>
+    </app-surface-card>
+  </section>
+
+  <section class="dashboard-grid dashboard-grid--secondary">
+    <app-surface-card
+      eyebrow="System"
+      title="Platform health"
+      subtitle="Operational signals related to the current governance workflow."
+    >
+      <div class="health-list">
+        @for (signal of dashboard.healthSignals; track signal.name) {
+          <article class="health-item" [attr.data-tone]="statusTone(signal.status)">
+            <div>
+              <strong>{{ signal.name }}</strong>
+              <p>{{ signal.description }}</p>
+            </div>
+            <span class="status-pill">{{ signal.status }}</span>
+          </article>
+        }
+      </div>
+    </app-surface-card>
+
+    <app-surface-card
+      eyebrow="Guidance"
+      title="Review discipline"
+      subtitle="Keep evidence, scenarios, and decisions consistent across the review process."
+    >
+      <ol class="ordered-list">
+        @for (priority of operatingPriorities; track priority) {
+          <li>{{ priority }}</li>
+        }
+      </ol>
+    </app-surface-card>
+  </section>
+} @else {
+  <section class="empty-state">
+    <strong>Loading dashboard...</strong>
+    <p>Your latest program metrics and review signals are being prepared.</p>
+  </section>
+}

@@ -1,0 +1,272 @@
+<app-page-header
+  eyebrow="Audit studio"
+  title="Configure audit run"
+  subtitle="Set the scope, connection, and test design for the next audit."
+  icon="audit"
+/>
+
+<section class="config-grid">
+  <app-surface-card
+    eyebrow="Scenario design"
+    title="Audit request"
+    subtitle="Define the model context, target factors, and execution settings."
+  >
+    <form [formGroup]="form" class="config-form">
+      <section class="form-section field--full">
+        <div class="form-section__header">
+          <strong>1. Review context</strong>
+          <p>Describe the model or workflow that will be assessed.</p>
+        </div>
+
+        <label class="field field--full">
+          <span>Model description</span>
+          <textarea
+            rows="4"
+            formControlName="modelDescription"
+            placeholder="Describe the decisioning or generation system you want to assess."
+          ></textarea>
+        </label>
+
+        <div class="field-grid">
+          <label class="field">
+            <span>Test count</span>
+            <input type="number" formControlName="testCount" min="3" max="20" />
+            <small>Use fewer tests for a quick check or more tests for broader coverage.</small>
+          </label>
+
+          <div class="field field--stack">
+            <span>Coverage note</span>
+            <div class="field-callout">
+              {{ reviewSummary().briefing }}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="form-section field--full">
+        <div class="form-section__header">
+          <strong>2. Review lens</strong>
+          <p>Select the factors that matter most for this audit.</p>
+        </div>
+
+        <div class="field field--full">
+          <span>Variance factors</span>
+          <div class="factor-input">
+            <input
+              type="text"
+              [value]="factorInput()"
+              (input)="setFactorInput($event)"
+              (keydown)="onFactorKeydown($event)"
+              placeholder="Type a factor and press Enter"
+            />
+            <button type="button" class="button button--secondary" (click)="addFactor()">
+              Add
+            </button>
+          </div>
+
+          <div class="factor-pills">
+            @for (factor of varianceFactors(); track factor) {
+              <button type="button" class="factor-pill" (click)="removeFactor(factor)">
+                {{ factor }}
+              </button>
+            }
+          </div>
+
+          <div class="preset-pills">
+            @for (preset of presets; track preset) {
+              <button type="button" class="preset-pill" (click)="addFactor(preset)">
+                + {{ preset }}
+              </button>
+            }
+          </div>
+        </div>
+      </section>
+
+      <section class="form-section field--full">
+        <div class="form-section__header">
+          <strong>3. Execution path</strong>
+          <p>Choose how the audit should reach the target system and what request format it should use.</p>
+        </div>
+
+        <div class="field-grid">
+          <label class="field">
+            <span>Connection mode</span>
+            <select formControlName="connectionType">
+              <option value="api">External API</option>
+              <option value="upload">Uploaded model bundle</option>
+            </select>
+            <small>Use API mode for hosted services and bundle mode for packaged model files.</small>
+          </label>
+
+          <label class="field">
+            <span>Execution format</span>
+            <select formControlName="apiMode">
+              <option value="prompt">Prompt style</option>
+              <option value="features">Feature payload</option>
+            </select>
+            <small>Choose the format expected by the target model or service.</small>
+          </label>
+        </div>
+
+        <div class="field-grid">
+          <label class="field">
+            <span>API URL</span>
+            <input type="url" formControlName="apiUrl" placeholder="https://api.example.com/predict" />
+            <small>Point to the endpoint that should receive audit requests.</small>
+          </label>
+
+          <label class="field">
+            <span>API key</span>
+            <input type="password" formControlName="apiKey" placeholder="Bearer sk-..." />
+            <small>Use a credential intended for audit access.</small>
+          </label>
+        </div>
+
+        @if (isConnection('api') && form.controls.apiMode.value === 'prompt') {
+          <label class="field field--full">
+            <span>LLM model name</span>
+            <input
+              type="text"
+              formControlName="modelName"
+              placeholder="openai/gpt-4.1-mini or anthropic/claude-3.5-sonnet"
+            />
+            <small>Required for OpenRouter or any chat-completions API that expects a model identifier.</small>
+          </label>
+        }
+
+        @if (isConnection('upload')) {
+          <div class="model-upload field--full">
+            <div class="model-upload__drop">
+              <label class="field">
+                <span>Model ZIP bundle</span>
+                <input type="file" accept=".zip,application/zip" (change)="onModelFileSelected($event)" />
+                <small>Upload the MLflow ZIP package that Python should inspect and test.</small>
+              </label>
+
+              <button
+                type="button"
+                class="button button--secondary"
+                [disabled]="!selectedModelFile() || modelUploadRunning()"
+                (click)="uploadSelectedModel()"
+              >
+                {{ modelUploadRunning() ? 'Uploading model...' : 'Upload model' }}
+              </button>
+            </div>
+
+            <div class="model-upload__status">
+              <article>
+                <span>Selected file</span>
+                <strong>{{ selectedModelFile()?.name || 'No ZIP selected' }}</strong>
+              </article>
+              <article>
+                <span>Backend model id</span>
+                <strong>{{ form.controls.localModelName.value || 'Upload pending' }}</strong>
+              </article>
+            </div>
+
+            <label class="field field--full model-upload__id">
+              <span>Model id used for audit</span>
+              <input type="text" formControlName="localModelName" placeholder="Returned after upload" readonly />
+              <small>This id is sent to .NET, then .NET asks Python to run the model audit.</small>
+            </label>
+          </div>
+        }
+      </section>
+    </form>
+
+    @if (note()) {
+      <p class="support-note">{{ note() }}</p>
+    }
+
+    <div class="run-status" [class.run-status--busy]="workspace.auditRunning()">
+      <div class="run-status__indicator" aria-hidden="true"></div>
+      <div>
+        <strong>{{ runExperience().title }}</strong>
+        <p>{{ runExperience().detail }}</p>
+      </div>
+    </div>
+
+    <div class="section-actions">
+      <button type="button" class="button button--secondary" (click)="saveDraft()">
+        {{ workspace.configSaving() ? 'Saving...' : 'Save scenario' }}
+      </button>
+      <button
+        type="button"
+        class="button button--primary"
+        [disabled]="!runAvailable || workspace.auditRunning()"
+        (click)="runAudit()"
+      >
+        {{ workspace.auditRunning() ? 'Running audit...' : 'Run governance audit' }}
+      </button>
+    </div>
+  </app-surface-card>
+
+  <div class="config-sidebar">
+    <app-surface-card
+      eyebrow="Summary"
+      title="Live summary"
+      subtitle="Use this panel to confirm the next run before launch."
+    >
+      <div class="summary-panel">
+        <article class="summary-panel__hero">
+          <span class="summary-panel__eyebrow">{{ reviewSummary().modeLabel }}</span>
+          <strong>{{ reviewSummary().scenarioDepth }}</strong>
+          <p>{{ reviewSummary().briefing }}</p>
+        </article>
+
+        <article class="summary-panel__block">
+          <span>Model scope</span>
+          <p>{{ reviewSummary().modelDescription }}</p>
+        </article>
+
+        <div class="summary-metrics">
+          <article>
+            <strong>{{ reviewSummary().factorCount }}</strong>
+            <span>Factors</span>
+          </article>
+          <article>
+            <strong>{{ formSnapshot().testCount }}</strong>
+            <span>Scenarios</span>
+          </article>
+          <article>
+            <strong>{{ reviewSummary().executionLabel }}</strong>
+            <span>Request shape</span>
+          </article>
+        </div>
+
+        <div class="quality-list">
+          @for (check of qualityChecks(); track check.label) {
+            <article class="quality-item">
+              <span>{{ check.label }}</span>
+              <strong>{{ check.state }}</strong>
+            </article>
+          }
+        </div>
+
+        <div class="connection-state" [attr.data-mode]="form.controls.connectionType.value">
+          <strong>{{ auditRunState.title }}</strong>
+          @if (isConnection('api')) {
+            <p>API mode is intended for hosted services and external endpoints.</p>
+          } @else {
+            <p>Bundle mode is intended for packaged model files and fixed review runs.</p>
+          }
+        </div>
+      </div>
+    </app-surface-card>
+
+    <app-surface-card
+      eyebrow="Guidance"
+      title="Prepare the audit"
+      subtitle="Use these reminders to improve the quality of the run."
+    >
+      <div class="guidance-list">
+        @for (note of guidanceNotes; track note) {
+          <article class="guidance-item">
+            <strong>{{ $index + 1 }}</strong>
+            <p>{{ note }}</p>
+          </article>
+        }
+      </div>
+    </app-surface-card>
+  </div>
+</section>

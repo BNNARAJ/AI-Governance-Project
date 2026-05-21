@@ -1,0 +1,167 @@
+<app-page-header
+  eyebrow="Regulations"
+  title="Regulation ingestion workspace"
+  subtitle="Upload and organize regulation documents used during governance reviews."
+  icon="library"
+/>
+
+@if (!uploadAvailable) {
+  <div style="margin-bottom:1rem">
+    <app-blocked-feature-card [feature]="uploadBlockedState" />
+  </div>
+}
+
+<section class="upload-grid">
+  <app-surface-card
+    eyebrow="Collection"
+    title="Queue policy documents"
+    subtitle="Bring regulation and policy files into one place."
+  >
+    <label class="dropzone">
+      <input type="file" accept=".pdf" multiple (change)="handleFileSelection($event)" />
+      <strong>Drop PDF files here or browse your workspace</strong>
+      <p>Recommended sources include regulatory circulars, policy manuals, governance standards, and approval checklists.</p>
+    </label>
+
+    @if (selectedFiles().length > 0) {
+      <div class="file-list">
+        @for (file of selectedFiles(); track file.name) {
+          <article class="file-row">
+            <div>
+              <strong>{{ file.name }}</strong>
+              <p>{{ (file.size / 1024 / 1024).toFixed(2) }} MB</p>
+            </div>
+            <button type="button" class="button button--ghost" (click)="removeFile(file.name)">
+              Remove
+            </button>
+          </article>
+        }
+      </div>
+    }
+
+    <div class="section-actions">
+      <button
+        type="button"
+        class="button button--primary"
+        [disabled]="!uploadAvailable || workspace.uploadRunning()"
+        (click)="upload()"
+      >
+        {{ workspace.uploadRunning() ? 'Indexing...' : 'Index regulations' }}
+      </button>
+    </div>
+
+    @if (bannerMessage()) {
+      <p class="support-note">{{ bannerMessage() }}</p>
+    }
+  </app-surface-card>
+
+  <app-surface-card
+    eyebrow="Playbook"
+    title="Library discipline"
+    subtitle="Keep the document set clear, current, and easy to review."
+  >
+    <div class="playbook-list">
+      <article>
+        <strong>Use canonical PDFs</strong>
+        <p>Prefer signed or officially published sources to reduce ambiguity during review.</p>
+      </article>
+      <article>
+        <strong>Refresh after policy changes</strong>
+        <p>When policy language changes, refresh the collection so reviewers use the latest version.</p>
+      </article>
+      <article>
+        <strong>Document scope decisions</strong>
+        <p>Capture why each source belongs to a model or review scope so the evidence trail stays clear.</p>
+      </article>
+    </div>
+
+    @if (uploadSummary(); as summary) {
+      <div class="summary-box">
+        <strong>Latest indexing event</strong>
+        <p>{{ summary.indexedArtifacts }} chunks created from {{ summary.uploadedCount }} uploaded file(s).</p>
+        <span>{{ summary.indexedAt | date: 'MMM d, y - h:mm a' }}</span>
+      </div>
+    } @else if (!uploadAvailable) {
+      <div class="summary-box">
+        <strong>Library status</strong>
+        <p>This collection area is prepared for shared document intake and indexing.</p>
+        <span>{{ uploadBlockedState.ownerNote }}</span>
+      </div>
+    }
+  </app-surface-card>
+</section>
+
+<section class="library-section">
+  <app-surface-card
+    eyebrow="Library"
+    title="Indexed regulation documents"
+    subtitle="Review the current source set used by the governance workflow."
+  >
+    @if (workspace.regulationLibraryLoading()) {
+      <div class="library-loading">
+        <span class="loading-dot"></span>
+        <div>
+          <strong>Refreshing document library</strong>
+          <p>Pulling the latest indexed files from the backend workspace.</p>
+        </div>
+      </div>
+    } @else if (libraryEntries().length > 0) {
+      <div class="library-table">
+        <div class="library-table__head">
+          <span>Document</span>
+          <span>Status</span>
+          <span>Uploaded</span>
+          <span>Actions</span>
+        </div>
+
+        @for (entry of libraryEntries(); track entry.id) {
+          <div class="library-table__row">
+            <div class="library-table__document">
+              <strong>{{ entry.fileName }}</strong>
+              <p>
+                {{ entry.active ? 'Active for your review context.' : 'Saved for reuse, not active in reviews.' }}
+              </p>
+            </div>
+            <span class="status-chip" [class.status-chip--inactive]="!entry.active">
+              {{ entry.status }}
+            </span>
+            <span>{{ entry.uploadedAt | date: 'MMM d, y - h:mm a' }}</span>
+            <div class="library-actions">
+              <button
+                type="button"
+                class="button button--secondary"
+                (click)="openDocument(entry.downloadUrl)"
+              >
+                Open
+              </button>
+              @if (entry.active) {
+                <button
+                  type="button"
+                  class="button button--ghost"
+                  [disabled]="workspace.regulationLibraryLoading()"
+                  (click)="removeFromIndex(entry.id)"
+                >
+                  Remove
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  class="button button--primary"
+                  [disabled]="workspace.regulationLibraryLoading()"
+                  (click)="reuse(entry.id)"
+                >
+                  Reuse
+                </button>
+              }
+            </div>
+          </div>
+        }
+      </div>
+    } @else {
+      <div class="empty-library">
+        <strong>No documents have been indexed yet.</strong>
+        <p>Upload one or more PDF files above to start the regulation library.</p>
+      </div>
+    }
+  </app-surface-card>
+</section>
