@@ -1,0 +1,4 @@
+audit_timestamp,model_description,overall_status,rule_metric_name,rule_sensitive_feature,rule_operator,threshold_min,threshold_max,actual_value,rule_status,source_excerpt,confidence,disparate_impact_ratio,demographic_parity_difference,selection_rate_min,selection_rate_max,row_count,tp,tn,fp,fn,precision,recall,f1_score,classification_accuracy
+2026-05-21T09:28:41.992003,loan,PASSED,disparate_impact_ratio,,>=,0.8,,0.9228,PASS,,,0.9228,0.076,0.25,0.25,1000,804,46,143,7,0.8526,0.85,0.8137,0.85
+2026-05-21T09:28:41.992003,loan,PASSED,demographic_parity_difference,,between,-0.1,0.1,0.076,PASS,,,0.9228,0.076,0.25,0.25,1000,804,46,143,7,0.8526,0.85,0.8137,0.85
+2026-05-21T09:28:41.992003,loan,PASSED,classification_accuracy,,>=,0.7,,0.85,PASS,,,0.9228,0.076,0.25,0.25,1000,804,46,143,7,0.8526,0.85,0.8137,0.85

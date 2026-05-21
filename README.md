@@ -200,6 +200,17 @@ Frontend URL:
 }
 ```
 
+### Fraud detection model (MLflow ZIP + CSV)
+
+For the [Fraud Detection MLflow model](https://github.com/pavannagula/Fraud-Detection-E2E-ML-project-using-MLflow/tree/main/mlruns/0/6f85f8b638294d1da308de9a3d0b9937/artifacts/model):
+
+1. Zip only the `artifacts/model` folder (`MLmodel`, `model.pkl`, etc.) and import via **Import MLflow bundle**.
+2. Set variance factor **Gender** (maps to `gender_F` / `gender_M` in the model).
+3. For CSV mode, use the bundled sample: `uploads/fairness_data/fraud_model_synthetic_dataset.csv` (columns include `fraud` as ground truth and model features). Download via `GET /sample-fairness-dataset`.
+4. **Dummy mode** auto-generates 1000 synthetic rows; **CSV mode** uses your file — `true_label` is the `fraud` column and `prediction` is the model output.
+
+Audit results include a **Metric Guide** in the UI and PDF with plain-language explanations (TP, FP, TN, FN, DIR, DPD, FPR, etc.).
+
 ## Outputs Returned by `/run-audit`
 
 - `summary`: top-level run stats and resolved execution mode

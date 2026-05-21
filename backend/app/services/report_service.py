@@ -184,11 +184,17 @@ def generate_audit_report(audit_data: dict) -> BytesIO:
     # ─── EXECUTIVE SUMMARY ───
     story.append(Paragraph("Executive Summary", styles["SectionHeading"]))
 
+    behavioral_executed = bool(summary.get("behavioral_phase_executed"))
+    tests_label = (
+        str(summary.get("test_count", 0)) + " behavioral"
+        if behavioral_executed
+        else str(summary.get("deterministic_rows_evaluated", 0)) + " rows (statistical)"
+    )
     exec_data = [
         ["Model Under Audit", summary.get("model_description", "N/A")],
         ["Variance Factors", ", ".join(summary.get("variance_factors", [])) or "None"],
-        ["Test Cases Run", str(summary.get("test_count", 0))],
-        ["Policy Violations", f"{violations} violation(s)" if violations else "✓ All policies passed"],
+        ["Evaluation Scope", tests_label],
+        ["Policy Violations", f"{violations} violation(s)" if violations else "✓ All checks passed"],
     ]
     exec_table = Table(exec_data, colWidths=[130, 350])
     exec_table.setStyle(TableStyle([
@@ -209,49 +215,54 @@ def generate_audit_report(audit_data: dict) -> BytesIO:
     story.append(exec_table)
     story.append(Spacer(1, 0.5*cm))
 
-    # ─── SCORECARD GAUGES ───
-    story.append(Paragraph("Fairness Scorecard", styles["SectionHeading"]))
+    if behavioral_executed:
+        story.append(Paragraph("Behavioral Fairness Scorecard", styles["SectionHeading"]))
 
-    avg_f = summary.get("avg_fairness", 0)
-    avg_c = summary.get("avg_compliance", 0)
-    avg_a = summary.get("avg_accuracy", 0)
+        avg_f = summary.get("avg_fairness") or 0
+        avg_c = summary.get("avg_compliance") or 0
+        avg_a = summary.get("avg_accuracy") or 0
 
-    gauge_f = _draw_gauge(avg_f, "Fairness")
-    gauge_c = _draw_gauge(avg_c, "Compliance")
-    gauge_a = _draw_gauge(avg_a, "Accuracy")
+        gauge_f = _draw_gauge(avg_f, "Fairness")
+        gauge_c = _draw_gauge(avg_c, "Compliance")
+        gauge_a = _draw_gauge(avg_a, "Accuracy")
+        overall = round((avg_f + avg_c + avg_a) / 3, 1)
+        gauge_overall = _draw_gauge(overall, "Overall")
 
-    # Overall score
-    overall = round((avg_f + avg_c + avg_a) / 3, 1)
-    gauge_overall = _draw_gauge(overall, "Overall")
+        gauge_table = Table(
+            [[gauge_overall, gauge_f, gauge_c, gauge_a]],
+            colWidths=[130, 115, 115, 115]
+        )
+        gauge_table.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BACKGROUND", (0, 0), (-1, -1), HexColor("#f8f9ff")),
+        ]))
+        story.append(gauge_table)
+        story.append(Spacer(1, 0.3*cm))
 
-    gauge_table = Table(
-        [[gauge_overall, gauge_f, gauge_c, gauge_a]],
-        colWidths=[130, 115, 115, 115]
-    )
-    gauge_table.setStyle(TableStyle([
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#f8f9ff")),
-    ]))
-    story.append(gauge_table)
-    story.append(Spacer(1, 0.3*cm))
-
-    # Score interpretation
-    if violations > 0:
+        if violations > 0:
+            story.append(Paragraph(
+                f"<b>⚠️ BEHAVIORAL COMPLIANCE: {violations} violation(s) detected</b><br/>"
+                f"The model does not meet the configured compliance policy thresholds from behavioral testing.",
+                styles["ErrorText"]
+            ))
+        else:
+            story.append(Paragraph(
+                "<b>✅ BEHAVIORAL COMPLIANCE: ALL POLICIES PASSED</b><br/>"
+                "Behavioral test cases met configured policy thresholds.",
+                styles["SuccessText"]
+            ))
+        story.append(Spacer(1, 0.5*cm))
+    elif summary.get("deterministic_phase_executed"):
+        story.append(Paragraph("Statistical Audit Summary", styles["SectionHeading"]))
+        det_rows = summary.get("deterministic_rows_evaluated", "N/A")
+        hybrid_status = summary.get("hybrid_overall_status") or hybrid.get("overall_status", "N/A")
         story.append(Paragraph(
-            f"<b>⚠️ COMPLIANCE STATUS: {violations} violation(s) detected</b><br/>"
-            f"The model does not meet the configured compliance policy thresholds. "
-            f"Immediate action is recommended.",
-            styles["ErrorText"]
+            f"This report reflects <b>deterministic (ML) governance only</b> — no LLM behavioral test cases were executed. "
+            f"<b>{det_rows}</b> rows were evaluated. Hybrid status: <b>{hybrid_status}</b>.",
+            styles["ReportBodyText"]
         ))
-    else:
-        story.append(Paragraph(
-            f"<b>✅ COMPLIANCE STATUS: ALL POLICIES PASSED</b><br/>"
-            f"The model meets all configured compliance policy thresholds.",
-            styles["SuccessText"]
-        ))
-
-    story.append(Spacer(1, 0.5*cm))
+        story.append(Spacer(1, 0.5*cm))
     story.append(HRFlowable(width="100%", color=PRIMARY_LIGHT, thickness=1))
     story.append(Spacer(1, 0.5*cm))
 
@@ -429,12 +440,24 @@ def generate_audit_report(audit_data: dict) -> BytesIO:
         
         if "classification" in task_type:
             conf = det_metrics.get("confusion_metrics", {})
+            fpr_val = conf.get("false_positive_rate")
+            if fpr_val is None:
+                fp_c = conf.get("false_positive")
+                tn_c = conf.get("true_negative")
+                if fp_c is not None and tn_c is not None and (fp_c + tn_c) > 0:
+                    fpr_val = fp_c / (fp_c + tn_c)
+            tpr_val = conf.get("true_positive_rate", conf.get("recall"))
             metrics_rows = [
                 ["Metric", "Value", "Explanation"],
-                ["Accuracy", f"{conf.get('accuracy', 0):.2%}" if isinstance(conf.get('accuracy'), (int, float)) else str(conf.get('accuracy', 'N/A')), "Overall correct predictions"],
-                ["Precision", f"{conf.get('precision', 0):.2%}" if isinstance(conf.get('precision'), (int, float)) else str(conf.get('precision', 'N/A')), "TP / (TP + FP)"],
-                ["Recall", f"{conf.get('recall', 0):.2%}" if isinstance(conf.get('recall'), (int, float)) else str(conf.get('recall', 'N/A')), "TP / (TP + FN)"],
-                ["F1-Score", f"{conf.get('f1_score', 0):.2%}" if isinstance(conf.get('f1_score'), (int, float)) else str(conf.get('f1_score', 'N/A')), "Harmonic mean of precision and recall"],
+                ["True Positives (TP)", str(conf.get("true_positive", "N/A")), "Correctly flagged positives (e.g., fraud caught)."],
+                ["True Negatives (TN)", str(conf.get("true_negative", "N/A")), "Correctly cleared negatives (e.g., legitimate cases approved)."],
+                ["False Positives (FP)", str(conf.get("false_positive", "N/A")), "False alarms — predicted positive but actual was negative."],
+                ["False Negatives (FN)", str(conf.get("false_negative", "N/A")), "Missed positives — predicted negative but actual was positive."],
+                ["Accuracy", f"{conf.get('accuracy', 0):.2%}" if isinstance(conf.get('accuracy'), (int, float)) else str(conf.get('accuracy', 'N/A')), "Share of all predictions that were correct."],
+                ["Precision", f"{conf.get('precision', 0):.2%}" if isinstance(conf.get('precision'), (int, float)) else str(conf.get('precision', 'N/A')), "When the model says positive, how often it is right."],
+                ["Recall (TPR)", f"{tpr_val:.2%}" if isinstance(tpr_val, (int, float)) else str(tpr_val or 'N/A'), "Of all actual positives, how many the model caught."],
+                ["False Positive Rate (FPR)", f"{fpr_val:.2%}" if isinstance(fpr_val, (int, float)) else str(fpr_val or 'N/A'), "Of all actual negatives, how many were wrongly flagged."],
+                ["F1-Score", f"{conf.get('f1_score', 0):.2%}" if isinstance(conf.get('f1_score'), (int, float)) else str(conf.get('f1_score', 'N/A')), "Balance between precision and recall."],
             ]
         else:
             reg = det_metrics.get("regression_metrics", {})
@@ -467,8 +490,10 @@ def generate_audit_report(audit_data: dict) -> BytesIO:
         story.append(Spacer(1, 0.2*cm))
         
         fair_rows = [
-            ["Sensitive Feature", "Disparate Impact Ratio (DIR)", "Demographic Parity Diff (DPD)", "Status"],
+            ["Sensitive Feature", "DIR", "DPD", "Status"],
         ]
+        dir_help = "Ratio of group selection rates; below 0.80 may indicate disparate impact."
+        dpd_help = "Difference in positive prediction rates between groups."
         for feat, feat_data in fair_metrics.items():
             if not isinstance(feat_data, dict):
                 continue
@@ -485,6 +510,11 @@ def generate_audit_report(audit_data: dict) -> BytesIO:
             ])
             
         if len(fair_rows) > 1:
+            story.append(Paragraph(
+                f"<i>DIR:</i> {dir_help} <i>DPD:</i> {dpd_help}",
+                styles["SmallMuted"],
+            ))
+            story.append(Spacer(1, 0.15 * cm))
             fair_table = Table(fair_rows, colWidths=[150, 130, 130, 70])
             fair_table.setStyle(TableStyle([
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),

@@ -230,6 +230,11 @@ def align_features_to_model(model, feature_df):
             drop_first=False
         )
 
+        if encoded_df.columns.duplicated().any():
+            encoded_df = encoded_df.loc[
+                :, ~encoded_df.columns.duplicated()
+            ]
+
         aligned_df = encoded_df.reindex(
 
             columns=expected_features,
@@ -521,12 +526,21 @@ def calculate_confusion_metrics(y_true, y_pred):
         result["false_positive"] = int(fp)
         result["false_negative"] = int(fn)
 
+        result["true_positive_rate"] = safe_float(
+            tp / (tp + fn) if (tp + fn) > 0 else None
+        )
+        result["false_positive_rate"] = safe_float(
+            fp / (fp + tn) if (fp + tn) > 0 else None
+        )
+
     else:
 
         result["true_positive"] = None
         result["true_negative"] = None
         result["false_positive"] = None
         result["false_negative"] = None
+        result["true_positive_rate"] = None
+        result["false_positive_rate"] = None
 
     return result
 

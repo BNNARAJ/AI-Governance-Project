@@ -44,8 +44,10 @@ def generate_governance_summary(deterministic_metrics, fairness_metrics):
     # ---------------------------------------------------
     # CONFUSION METRICS CHECK
     # ---------------------------------------------------
-    accuracy = deterministic_metrics.get("accuracy")
-    r2_score = deterministic_metrics.get("r2_score")
+    confusion = deterministic_metrics.get("confusion_metrics", {})
+    accuracy = deterministic_metrics.get("accuracy", confusion.get("accuracy"))
+    regression = deterministic_metrics.get("regression_metrics", {})
+    r2_score = deterministic_metrics.get("r2_score", regression.get("r2_score"))
 
     if accuracy is not None:
         passed_any_metric = True
@@ -96,6 +98,10 @@ def generate_governance_summary(deterministic_metrics, fairness_metrics):
     else:
         summary["overall_status"] = "FAILED"
         summary["risk_level"] = "HIGH"
+
+    summary["status"] = summary["overall_status"]
+    summary["failed_rules"] = summary["failed_checks"]
+    summary["passed_rules"] = summary["passed_checks"]
 
     return summary
 

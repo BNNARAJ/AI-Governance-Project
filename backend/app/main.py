@@ -63,6 +63,7 @@ from app.services.model_service import model_service
 from app.services.model_profile import ModelProfile, FeatureSpec
 from app.services.statistical.governance import run_governance, router as statistical_governance_router
 from app.services.statistical.metrics import run_all_metrics
+from app.services.statistical.metric_glossary import get_metric_glossary
 from app.services.statistical.upload import router as statistical_upload_router
 
 import requests
@@ -374,6 +375,25 @@ async def upload_feature_schema(filename: str, file: UploadFile = File(...)):
     # profile = ModelProfile(model_id=filename, features=specs)
     # saved = model_service.save_profile(filename, profile.model_dump())
     # return {"message": "Feature schema uploaded successfully", "feature_count": len(saved.features)}
+
+
+@app.get("/sample-fairness-dataset")
+async def sample_fairness_dataset():
+    """Download the bundled fraud-model fairness evaluation CSV."""
+    sample_path = os.path.join(
+        project_dir,
+        "uploads",
+        "fairness_data",
+        "fraud_model_synthetic_dataset.csv",
+    )
+    if not os.path.exists(sample_path):
+        raise HTTPException(status_code=404, detail="Sample fairness dataset not found")
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        sample_path,
+        media_type="text/csv",
+        filename="fraud_model_synthetic_dataset.csv",
+    )
 
 
 @app.post("/upload-fairness-data")
@@ -1156,49 +1176,148 @@ async def run_audit():
         model_id = current_config.local_file_path
 
         fairness_data_file = current_config.fairness_data_file
+        variance_factors = current_config.variance_factors or []
 
-        sens_feature = (current_config.variance_factors[0].lower() 
-                        if current_config.variance_factors else "gender")
-                        
         is_dummy = getattr(current_config, "fairness_data_mode", "dummy") == "dummy"
 
-        governance_results = (
-            model_service.run_statistical_governance(
-              model_id=model_id,
-              dataset_path=fairness_data_file,
-              sensitive_feature=sens_feature,
-              target_column="approved",
-              generate_synthetic=is_dummy
-           )
+        governance_results = model_service.run_statistical_governance(
+            model_id=model_id,
+            dataset_path=fairness_data_file,
+            sensitive_feature=variance_factors[0] if variance_factors else None,
+            target_column=None,
+            generate_synthetic=is_dummy,
+            variance_factors=variance_factors,
         )
+
+        if governance_results.get("status") == "failed":
+            raise HTTPException(
+                status_code=500,
+                detail=governance_results.get(
+                    "error",
+                    "Statistical governance failed",
+                ),
+            )
 
         if last_audit_result is None:
             last_audit_result = {}
 
         gov_summary = governance_results.get("governance_summary", {})
-        failed_rules = gov_summary.get("failed_rules", [])
-        passed_rules = gov_summary.get("passed_rules", [])
+        failed_rules = [
+            {"message": msg}
+            for msg in gov_summary.get("failed_checks", gov_summary.get("failed_rules", []))
+        ]
+        passed_rules = [
+            {"message": msg}
+            for msg in gov_summary.get("passed_checks", gov_summary.get("passed_rules", []))
+        ]
         violations = len(failed_rules)
 
-        # Map statistical metrics to frontend structure
-        fairness_raw = governance_results.get("fairness_metrics", {}).get(sens_feature, {})
+        resolved_sensitive = (
+            (governance_results.get("sensitive_columns") or [None])[0]
+        )
+        fairness_raw = {}
+        if resolved_sensitive:
+            fairness_raw = governance_results.get("fairness_metrics", {}).get(
+                resolved_sensitive, {}
+            )
+        if not fairness_raw and governance_results.get("fairness_metrics"):
+            fairness_raw = next(iter(governance_results["fairness_metrics"].values()))
         parity = fairness_raw.get("demographic_parity", {})
+        dir_value = parity.get("dir", {}).get("value")
+        dpd_value = parity.get("dpd", {}).get("value")
+
+        distribution = fairness_raw.get("distribution", {}) or {}
+        selection_rates = [
+            group.get("percentage", 0) / 100.0
+            for group in distribution.values()
+            if isinstance(group, dict)
+        ]
+
+        audit_rows = governance_results.get("dataset_preview", [])
+        total_rows_evaluated = (
+            governance_results.get("evaluated_rows")
+            or governance_results.get("synthetic_rows")
+            or len(audit_rows)
+        )
+        preview_limit = governance_results.get("preview_row_limit", 10)
+        behavioral_test_count = len(results) if "results" in locals() and results else 0
+
         mapped_fairness = {
-            "disparate_impact_ratio": parity.get("dir", {}).get("value"),
-            "demographic_parity_difference": parity.get("dpd", {}).get("value"),
-            "row_count": governance_results.get("synthetic_rows") or len(governance_results.get("dataset_preview", [])),
+            "disparate_impact_ratio": dir_value,
+            "demographic_parity_difference": dpd_value,
+            "selection_rate_min": min(selection_rates) if selection_rates else None,
+            "selection_rate_max": max(selection_rates) if selection_rates else None,
+            "row_count": total_rows_evaluated,
         }
-        
+
         det_metrics = governance_results.get("deterministic_metrics", {})
         conf_metrics = det_metrics.get("confusion_metrics", {})
+        accuracy_score = conf_metrics.get("accuracy")
+        recall_score = conf_metrics.get("true_positive_rate", conf_metrics.get("recall"))
+        fpr_score = conf_metrics.get("false_positive_rate")
+        if fpr_score is None:
+            fp_count = conf_metrics.get("false_positive")
+            tn_count = conf_metrics.get("true_negative")
+            if fp_count is not None and tn_count is not None and (fp_count + tn_count) > 0:
+                fpr_score = fp_count / (fp_count + tn_count)
+
         mapped_matrices = {
             "overall_confusion_matrix": conf_metrics.get("confusion_matrix"),
             "overall_rates": {
-                "accuracy": conf_metrics.get("accuracy"),
+                "accuracy": accuracy_score,
                 "precision": conf_metrics.get("precision"),
-                "tpr": conf_metrics.get("recall"), # TPR is recall
-            }
+                "tpr": recall_score,
+                "fpr": fpr_score,
+            },
         }
+
+        hybrid_rule_results = []
+        if dir_value is not None:
+            hybrid_rule_results.append({
+                "metric_name": "disparate_impact_ratio",
+                "operator": ">=",
+                "threshold_min": 0.80,
+                "threshold_max": None,
+                "actual_value": dir_value,
+                "status": "PASS" if dir_value >= 0.80 else "FAIL",
+                "severity": "mandatory",
+            })
+        if dpd_value is not None:
+            hybrid_rule_results.append({
+                "metric_name": "demographic_parity_difference",
+                "operator": "between",
+                "threshold_min": -0.10,
+                "threshold_max": 0.10,
+                "actual_value": dpd_value,
+                "status": "PASS" if abs(dpd_value) <= 0.10 else "FAIL",
+                "severity": "mandatory",
+            })
+        if accuracy_score is not None:
+            hybrid_rule_results.append({
+                "metric_name": "classification_accuracy",
+                "operator": ">=",
+                "threshold_min": 0.70,
+                "threshold_max": None,
+                "actual_value": accuracy_score,
+                "status": "PASS" if accuracy_score >= 0.70 else "FAIL",
+                "severity": "advisory",
+            })
+
+        overall_status = gov_summary.get("overall_status", gov_summary.get("status", "FAIL"))
+        if any(r.get("status") == "FAIL" for r in hybrid_rule_results):
+            overall_status = "FAIL"
+        elif overall_status == "FAILED":
+            overall_status = "FAIL"
+
+        behavioral_executed = bool(run_behavioral and behavioral_test_count > 0)
+        if behavioral_executed:
+            avg_f_behavioral = round(total_fairness / behavioral_test_count, 1)
+            avg_c_behavioral = round(total_compliance / behavioral_test_count, 1)
+            avg_a_behavioral = round(total_accuracy / behavioral_test_count, 1)
+        else:
+            avg_f_behavioral = None
+            avg_c_behavioral = None
+            avg_a_behavioral = None
 
         last_audit_result = {
             "status": "Audit Complete",
@@ -1206,20 +1325,24 @@ async def run_audit():
                 "timestamp": datetime.now().isoformat(),
                 "model_description": current_config.model_description,
                 "variance_factors": current_config.variance_factors,
-                "avg_fairness": gov_summary.get("fairness_score", 0),
-                "avg_compliance": gov_summary.get("compliance_score", 0),
-                "avg_accuracy": gov_summary.get("overall_score", 0),
-                "test_count": governance_results.get("synthetic_rows") or len(governance_results.get("dataset_preview", [])),
+                "model_type_resolved": model_type,
+                "avg_fairness": avg_f_behavioral,
+                "avg_compliance": avg_c_behavioral,
+                "avg_accuracy": avg_a_behavioral,
+                "test_count": behavioral_test_count,
+                "deterministic_rows_evaluated": total_rows_evaluated,
+                "deterministic_preview_rows": min(preview_limit, len(audit_rows)),
                 "policy_violations": violations,
+                "behavioral_phase_executed": behavioral_executed,
                 "deterministic_phase_executed": True,
+                "hybrid_overall_status": overall_status,
             },
             "results": results if "results" in locals() else [],
             "policy_violations": violations,
             "hybrid_validation": {
-                "overall_status": gov_summary.get("status", "FAIL"),
+                "overall_status": overall_status,
                 "fairness_metrics": {
                     **mapped_fairness,
-                    **mapped_matrices,
                     "tp": conf_metrics.get("true_positive"),
                     "tn": conf_metrics.get("true_negative"),
                     "fp": conf_metrics.get("false_positive"),
@@ -1230,551 +1353,24 @@ async def run_audit():
                     "classification_accuracy": conf_metrics.get("accuracy"),
                     "confusion_matrix": conf_metrics.get("confusion_matrix"),
                 },
-                "rule_results": failed_rules + passed_rules,
+                "fairness_matrices": mapped_matrices,
+                "rule_results": hybrid_rule_results or (failed_rules + passed_rules),
             },
 
             "deterministic_dataset": {
-                "row_count": governance_results.get("synthetic_rows") or len(governance_results.get("dataset_preview", [])),
+                "row_count": total_rows_evaluated,
+                "total_rows_evaluated": total_rows_evaluated,
+                "preview_row_limit": preview_limit,
+                "preview_row_count": len(audit_rows),
                 "source_mode": governance_results.get("dataset_type", "uploaded"),
-                "truncated": True,
-                "rows": governance_results.get("dataset_preview", [])
+                "truncated": total_rows_evaluated > len(audit_rows),
+                "rows": audit_rows,
             },
             "dataset_sample": governance_results.get("dataset_preview", []),
             "statistical_governance": governance_results,
+            "metric_glossary": get_metric_glossary(),
         }
-
-# Merge
-        # audit_results["statistical_governance"] = governance_results
-
-        # fairness_metrics: dict[str, Any] = {}
-        # hybrid_rule_results: list[dict[str, Any]] = []
-        # deterministic_warning = None
-
-        # confidence_threshold = (
-        #     0.75
-        #     if not ml_readiness.get(
-        #         "limited_assurance"
-        #     )
-        #     else 0.9
-        # )
-
-        # rules_with_severity = []
-
-        # for r in extracted_rules:
-
-        #     rr = dict(r)
-
-        #     conf = float(
-        #         rr.get("confidence", 0.5)
-        #         or 0.5
-        #     )
-
-        #     rr["severity"] = (
-        #         "mandatory"
-        #         if conf >= confidence_threshold
-        #         else "advisory"
-        #     )
-
-        #     rules_with_severity.append(rr)
-
-        # # =========================================================
-        # # DETERMINISTIC ML FAIRNESS DATASET
-        # # =========================================================
-
-        # def _generate_model_dataset_and_predict(
-        #     n_rows: int,
-        # ):
-
-        #     import numpy as np
-        #     import pandas as pd
-
-        #     from app.services.fairness_engine import (
-        #         FairnessDataset,
-        #     )
-
-        #     profile_source_id = (
-        #         current_config.local_file_path
-        #         or "ml_model"
-        #     )
-
-        #     profile = (
-        #         model_service.get_or_default_profile(
-        #             profile_source_id,
-        #             feature_names=(
-        #                 feature_names
-        #                 or current_config.custom_feature_names
-        #             ),
-        #         )
-        #     )
-
-        #     baseline = (
-        #         model_service.build_baseline_features(
-        #             profile
-        #         )
-        #     )
-
-        #     predictions = []
-        #     true_labels = []
-        #     sensitive_features = []
-        #     dataset_rows = []
-
-        #     for i in range(n_rows):
-
-        #         factor = (
-        #             variance_factors_cfg[
-        #                 i % len(
-        #                     variance_factors_cfg
-        #                 )
-        #             ]
-        #             if variance_factors_cfg
-        #             else "General Fairness"
-        #         )
-
-        #         merged = (
-        #             model_service.apply_variance(
-        #                 profile,
-        #                 baseline,
-        #                 factor,
-        #                 i,
-        #             )
-        #         )
-
-        #         # =====================================
-        #         # SENSITIVE GROUP
-        #         # =====================================
-
-        #         sensitive_group = (
-        #             "group_b"
-        #             if i % 3 == 0
-        #             else "group_a"
-        #         )
-
-        #         merged[
-        #             "sensitive_feature"
-        #         ] = sensitive_group
-
-        #         # =====================================
-        #         # CLEAN FEATURES
-        #         # =====================================
-
-        #         clean_features = {}
-
-        #         for k, v in merged.items():
-
-        #             try:
-
-        #                 if isinstance(v, str):
-
-        #                     val = (
-        #                         v.lower()
-        #                         .strip()
-        #                     )
-
-        #                     if val in [
-        #                         "male",
-        #                         "m",
-        #                     ]:
-        #                         clean_features[
-        #                             k
-        #                         ] = 1
-
-        #                     elif val in [
-        #                         "female",
-        #                         "f",
-        #                     ]:
-        #                         clean_features[
-        #                             k
-        #                         ] = 0
-
-        #                     elif val in [
-        #                         "yes",
-        #                         "true",
-        #                     ]:
-        #                         clean_features[
-        #                             k
-        #                         ] = 1
-
-        #                     elif val in [
-        #                         "no",
-        #                         "false",
-        #                     ]:
-        #                         clean_features[
-        #                             k
-        #                         ] = 0
-
-        #                     else:
-        #                         try:
-        #                             clean_features[
-        #                                 k
-        #                             ] = float(v)
-        #                         except:
-        #                             clean_features[
-        #                                 k
-        #                             ] = 0
-
-        #                 else:
-
-        #                     clean_features[k] = (
-        #                         float(v)
-        #                     )
-
-        #             except:
-        #                 clean_features[k] = 0
-
-        #         # =====================================
-        #         # RUN ACTUAL ML MODEL
-        #         # =====================================
-
-        #         pred_int = 0
-
-        #         try:
-
-        #             prediction = (
-        #                 model_service.predict(
-        #                     current_config.local_file_path,
-        #                     clean_features,
-        #                 )
-        #             )
-
-        #             # sklearn output handling
-
-        #             if isinstance(
-        #                 prediction,
-        #                 (
-        #                     list,
-        #                     np.ndarray,
-        #                 ),
-        #             ):
-        #                 prediction = prediction[0]
-
-        #             pred_int = int(
-        #                 float(prediction)
-        #             )
-
-        #         except Exception as e:
-
-        #             print(
-        #                 f"Prediction error row {i}: {e}"
-        #             )
-
-        #             # fallback
-
-        #             pred_int = np.random.choice([0, 1])
-
-        #         # =====================================
-        #         # TRUE LABEL LOGIC
-        #         # =====================================
-                
-        #         import random
-        #         true_label = pred_int if random.random() > 0.15 else (1 - pred_int)
-
-        #         # =====================================
-        #         # STORE RESULTS
-        #         # =====================================
-
-        #         true_labels.append(
-        #             true_label
-        #         )
-
-        #         predictions.append(
-        #             pred_int
-        #         )
-
-        #         sensitive_features.append(
-        #             sensitive_group
-        #         )
-
-        #         row_record = dict(
-        #             clean_features
-        #         )
-
-        #         row_record[
-        #             "true_label"
-        #         ] = true_label
-
-        #         row_record[
-        #             "prediction"
-        #         ] = pred_int
-
-        #         row_record[
-        #             "sensitive_feature"
-        #         ] = sensitive_group
-
-        #         dataset_rows.append(
-        #             row_record
-        #         )
-
-        #     fairness_dataset = (
-        #         FairnessDataset(
-        #             true_labels=true_labels,
-        #             predictions=predictions,
-        #             sensitive_feature=sensitive_features,
-        #         )
-        #     )
-
-        #     return (
-        #         fairness_dataset,
-        #         dataset_rows,
-        #     )
-
-        # # =========================================================
-        # # DETERMINISTIC FAIRNESS ENGINE
-        # # =========================================================
-
-        # if run_deterministic:
-
-        #     import mlflow
-        #     import pandas as pd
-
-        #     dataset_rows = []
-
-        #     mlflow.set_tracking_uri(
-        #         "./mlruns"
-        #     )
-
-        #     mlflow.set_experiment(
-        #         "ML_Model_Fairness_Audit"
-        #     )
-
-        #     try:
-
-        #         with mlflow.start_run(
-        #             run_name=(
-        #                 f"Audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        #             )
-        #         ):
-
-        #             mlflow.log_param(
-        #                 "model_description",
-        #                 current_config.model_description,
-        #             )
-
-        #             mlflow.log_param(
-        #                 "connection_type",
-        #                 current_config.connection_type,
-        #             )
-
-        #             # =================================
-        #             # GENERATE DATASET
-        #             # =================================
-
-        #             fairness_dataset, dataset_rows = (
-        #                 _generate_model_dataset_and_predict(
-        #                     n_rows=max(
-        #                         200,
-        #                         desired_n * 30,
-        #                     )
-        #                 )
-        #             )
-
-        #             # =================================
-        #             # COMPUTE METRICS
-        #             # =================================
-
-        #             fairness_metrics = (
-        #                 fairness_engine.compute_metrics(
-        #                     fairness_dataset
-        #                 )
-        #             )
-
-        #             hybrid_rule_results = (
-        #                 fairness_engine.evaluate_rules(
-        #                     rules_with_severity,
-        #                     fairness_metrics,
-        #                 )
-        #             )
-
-        #             # =================================
-        #             # LOG METRICS
-        #             # =================================
-
-        #             for k, v in (
-        #                 fairness_metrics.items()
-        #             ):
-
-        #                 if isinstance(
-        #                     v,
-        #                     (
-        #                         int,
-        #                         float,
-        #                     ),
-        #                 ):
-
-        #                     mlflow.log_metric(
-        #                         k,
-        #                         v,
-        #                     )
-
-        #             # =================================
-        #             # SAVE GENERATED DATASET
-        #             # =================================
-
-        #             if dataset_rows:
-
-        #                 df = pd.DataFrame(
-        #                     dataset_rows
-        #                 )
-
-        #                 csv_path = os.path.join(
-        #                     AUDIT_RESULTS_DIR,
-        #                     "generated_fairness_dataset.csv",
-        #                 )
-
-        #                 df.to_csv(
-        #                     csv_path,
-        #                     index=False,
-        #                 )
-
-        #                 mlflow.log_artifact(
-        #                     csv_path
-        #                 )
-
-        #     except Exception as e:
-
-        #         deterministic_warning = (
-        #             f"Deterministic fairness engine failed: {e}"
-        #         )
-
-        #         fairness_dataset = (
-        #             fairness_engine.build_dummy_dataset(
-        #                 n_rows=max(
-        #                     200,
-        #                     desired_n * 25,
-        #                 )
-        #             )
-        #         )
-
-        #         fairness_metrics = (
-        #             fairness_engine.compute_metrics(
-        #                 fairness_dataset
-        #             )
-        #         )
-
-        #         hybrid_rule_results = (
-        #             fairness_engine.evaluate_rules(
-        #                 rules_with_severity,
-        #                 fairness_metrics,
-        #             )
-        #         )
-
-        # else:
-
-        #     fairness_metrics = {
-        #         "disparate_impact_ratio": None,
-        #         "demographic_parity_difference": None,
-        #         "selection_rate_min": None,
-        #         "selection_rate_max": None,
-        #         "row_count": 0,
-        #     }
-
-        #     hybrid_rule_results = []
-
-        # mandatory_failures = [
-        #     r
-        #     for r in hybrid_rule_results
-        #     if r.get("status") == "FAIL"
-        #     and r.get("severity")
-        #     == "mandatory"
-        # ]
-
-        # hybrid_overall_status = (
-        #     "FAIL"
-        #     if mandatory_failures
-        #     else "PASS"
-        # )
-
-        # print(
-        #     "Calculating summary and checking policies..."
-        # )
-
-        # n = (
-        #     len(results)
-        #     if results
-        #     else 0
-        # )
-
-        # avg_f = (
-        #     total_fairness / n
-        # ) if n else 0.0
-
-        # avg_c = (
-        #     total_compliance / n
-        # ) if n else 0.0
-
-        # avg_a = (
-        #     total_accuracy / n
-        # ) if n else 0.0
-
-        # violations = 0
-
-        # if run_behavioral:
-
-        #     for policy in compliance_policies:
-
-        #         if avg_f < policy.get(
-        #             "min_fairness_score",
-        #             0,
-        #         ):
-        #             violations += 1
-
-        #         if avg_c < policy.get(
-        #             "min_compliance_score",
-        #             0,
-        #         ):
-        #             violations += 1
-
-        #         if avg_a < policy.get(
-        #             "min_accuracy_score",
-        #             0,
-        #         ):
-        #             violations += 1
-        # audit_record = {
-        #     "timestamp": datetime.now().isoformat(),
-        #     "model_description": current_config.model_description,
-        #     "variance_factors": current_config.variance_factors,
-        #     "avg_fairness": round(avg_f, 1),
-        #     "avg_compliance": round(avg_c, 1),
-        #     "avg_accuracy": round(avg_a, 1),
-        #     "test_count": len(results),
-        #     "policy_violations": violations,
-        #     "hybrid_overall_status": hybrid_overall_status,
-        #     "model_type_resolved": model_type,
-        #     "behavioral_phase_executed": run_behavioral,
-        #     "deterministic_phase_executed": run_deterministic,
-        #     "ml_ingestion_level": ml_readiness.get("ml_ingestion_level"),
-        #     "assurance_level": ml_readiness.get("assurance_level"),
-        # }
-        # audit_history.append(audit_record)
-
-        # global last_audit_result
-        # last_audit_result = {
-        #     "status": "Audit Complete",
-        #     "summary": audit_record,
-        #     "results": results,
-        #     "policy_violations": violations,
-        #     "hybrid_validation": {
-        #         "overall_status": hybrid_overall_status,
-        #         "fairness_metrics": fairness_metrics,
-        #         "rule_results": hybrid_rule_results,
-        #     },
-        #     "execution_plan": {
-        #         "model_type": model_type,
-        #         "behavioral_phase_executed": run_behavioral,
-        #         "deterministic_phase_executed": run_deterministic,
-        #         "rule_source": rules_source,
-        #         "ml_readiness": ml_readiness,
-        #     },
-        #     "phase_2_agentic_extraction": phase2_status,  # Phase 2: Agentic Extractor results
-        #     "dataset_sample": dataset_rows[:50] if run_deterministic and 'dataset_rows' in locals() and dataset_rows else [],
-        # }
-
-        # if "llm_warning" in locals():
-        #     last_audit_result["warning"] = llm_warning
-        # if rag_warning:
-        #     last_audit_result["rag_warning"] = rag_warning
-        # if deterministic_warning:
-        #     last_audit_result["deterministic_warning"] = deterministic_warning
-
+    
         csv_path = os.path.join(
             AUDIT_RESULTS_DIR,
             f"hybrid_audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",

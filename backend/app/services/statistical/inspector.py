@@ -29,6 +29,9 @@ def find_model_files(model_dir: str):
         "python_env": None
     }
 
+    best_mlmodel = None
+    best_score = -1
+
     # Walk all directories
     for root, dirs, files in os.walk(model_dir):
         for file_name in files:
@@ -39,8 +42,16 @@ def find_model_files(model_dir: str):
             # -----------------------------------------
             if file_name == "MLmodel":
                 artifacts["mlmodel_files"].append(full_path)
-                if artifacts["mlmodel"] is None:
-                    artifacts["mlmodel"] = full_path
+                score = 0
+                normalized = full_path.replace("\\", "/").lower()
+                if normalized.endswith("/artifacts/model/mlmodel"):
+                    score += 100
+                if os.path.exists(os.path.join(root, "model.pkl")):
+                    score += 50
+                score -= normalized.count("/")
+                if score > best_score:
+                    best_score = score
+                    best_mlmodel = full_path
 
             # -----------------------------------------
             # Pickle
@@ -77,6 +88,14 @@ def find_model_files(model_dir: str):
             # -----------------------------------------
             elif file_name == "python_env.yaml":
                 artifacts["python_env"] = full_path
+
+    if best_mlmodel:
+        artifacts["mlmodel"] = best_mlmodel
+        model_dir_path = os.path.dirname(best_mlmodel)
+        preferred_pkl = os.path.join(model_dir_path, "model.pkl")
+        if os.path.exists(preferred_pkl):
+            if preferred_pkl not in artifacts["pickle_files"]:
+                artifacts["pickle_files"].insert(0, preferred_pkl)
 
     return artifacts
 
@@ -145,7 +164,7 @@ def detect_framework(metadata: dict, model=None):
 # EXTRACT FEATURE NAMES
 # ---------------------------------------------------
 
-def extract_feature_names(model, metadata=None):
+def extract_feature_names(model, metadata=None, model_path: str | None = None):
     """
     Extract feature names safely.
     """
@@ -168,13 +187,29 @@ def extract_feature_names(model, metadata=None):
         if isinstance(signature, dict):
             inputs = signature.get("inputs")
             if isinstance(inputs, list):
-                return [
+                names = [
                     item.get("name")
                     for item in inputs
-                    if isinstance(item, dict)
+                    if isinstance(item, dict) and item.get("name")
                 ]
+                if names:
+                    return names
     except Exception:
         pass
+
+    if model_path:
+        from app.services.statistical.dataset_utils import (
+            load_schema_feature_names,
+            load_sample_input_columns,
+        )
+
+        schema_features = load_schema_feature_names(model_path)
+        if schema_features:
+            return schema_features
+
+        sample_columns = load_sample_input_columns(model_path)
+        if sample_columns:
+            return sample_columns
 
     return []
 
@@ -303,35 +338,57 @@ def find_reference_dataset(artifacts):
     for CSV datasets.
     """
     possible_files = []
-    search_root = None
+    search_roots = []
 
     if artifacts.get("mlmodel"):
-        search_root = os.path.dirname(artifacts["mlmodel"])
+        search_roots.append(os.path.dirname(artifacts["mlmodel"]))
+        search_roots.append(
+            os.path.dirname(
+                os.path.dirname(
+                    os.path.dirname(artifacts["mlmodel"])
+                )
+            )
+        )
 
-    if not search_root:
-        return None
-
-    # Walk directories
-    for root, dirs, files in os.walk(search_root):
-        for file in files:
-            if file.endswith(".csv"):
-                possible_files.append(os.path.join(root, file))
+    for search_root in search_roots:
+        if not search_root or not os.path.isdir(search_root):
+            continue
+        for root, dirs, files in os.walk(search_root):
+            for file in files:
+                if file.endswith(".csv"):
+                    possible_files.append(os.path.join(root, file))
 
     if len(possible_files) == 0:
         return None
 
-    return possible_files[0]
+    priority_names = [
+        "sample_input.csv",
+        "fraud_data.csv",
+        "train.csv",
+        "test.csv",
+    ]
+
+    for name in priority_names:
+        for path in possible_files:
+            if os.path.basename(path).lower() == name:
+                return path
+
+    non_generated = [
+        path for path in possible_files
+        if "generated_" not in os.path.basename(path).lower()
+    ]
+    return (non_generated or possible_files)[0]
 
 # ---------------------------------------------------
 # MODEL INSPECTION
 # ---------------------------------------------------
 
-def inspect_model(model, metadata):
+def inspect_model(model, metadata, model_path: str | None = None):
     """
     Safely inspect uploaded model.
     """
     try:
-        features = extract_feature_names(model, metadata)
+        features = extract_feature_names(model, metadata, model_path=model_path)
     except Exception:
         features = []
 

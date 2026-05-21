@@ -37,7 +37,18 @@ from .fairness import (
     run_multi_fairness_analysis
 )
 
-from app.services.report_service import (
+from .dataset_utils import (
+    resolve_model_feature_names,
+    infer_target_column,
+    resolve_sensitive_column,
+    ensure_sensitive_column,
+    prepare_uploaded_dataset,
+    build_audit_dataset_preview,
+)
+
+from .synthetic_data import ensure_binary_labels
+
+from .reports import (
     generate_governance_summary
 )
 
@@ -115,7 +126,8 @@ def run_governance(
 
         inspection = inspect_model(
             model,
-            metadata
+            metadata,
+            model_path=request.model_path,
         )
 
         model_task_type = inspection.get(
@@ -123,16 +135,23 @@ def run_governance(
             "unknown"
         )
 
+        feature_names = resolve_model_feature_names(
+            model=model,
+            metadata=metadata,
+            model_path=request.model_path,
+            inspection=inspection,
+        )
+        inspection["feature_names"] = feature_names
+        inspection["total_features"] = len(feature_names)
+
+        resolved_target_column = request.target_column
+        resolved_sensitive_columns = list(request.sensitive_columns)
+
         # ---------------------------------------------------
         # DATASET HANDLING
         # ---------------------------------------------------
 
         if request.generate_synthetic:
-
-            feature_names = inspection.get(
-                "feature_names",
-                []
-            )
 
             if len(feature_names) == 0:
 
@@ -140,7 +159,9 @@ def run_governance(
                     status_code=400,
                     detail=(
                         "Feature names could not "
-                        "be extracted from model"
+                        "be extracted from model. "
+                        "Add schema.json or sample_input.csv "
+                        "to the MLflow bundle."
                     )
                 )
 
@@ -200,36 +221,61 @@ def run_governance(
             # ENSURE SENSITIVE FEATURES EXIST
             # ---------------------------------------------
 
-            for sensitive_col in request.sensitive_columns:
-                if sensitive_col not in df.columns:
-                    df[sensitive_col] = np.random.choice(["Group A", "Group B"], size=len(df))
-
-            # ---------------------------------------------
-            # ALIGN FEATURES
-            # ---------------------------------------------
-
-            aligned_df, _ = (
-                align_features_to_model(
-                    model,
-                    df
+            try:
+                sensitive_col = resolve_sensitive_column(
+                    df,
+                    hints=request.sensitive_columns,
+                    inspection_candidates=inspection.get(
+                        "sensitive_feature_candidates",
+                        [],
+                    ),
                 )
-            )
-            # Use aligned DataFrame for target generation
-            df = aligned_df
+            except ValueError:
+                sensitive_col = request.sensitive_columns[0] if request.sensitive_columns else "sensitive_group"
 
-            df[request.target_column] = generate_synthetic_target(
-            model=model,
-            X=aligned_features,
-            task_type=model_task_type
+            df, sensitive_col = ensure_sensitive_column(
+                df,
+                sensitive_col,
+                hints=request.sensitive_columns,
+                model_features=feature_names,
             )
+            resolved_sensitive_columns = [sensitive_col]
+
+            # ---------------------------------------------
+            # ALIGN FEATURES + SYNTHETIC TARGET
+            # ---------------------------------------------
+
+            aligned_df, _ = align_features_to_model(
+                model,
+                df,
+            )
+
+            resolved_target_column = request.target_column or "approved"
+
+            synthetic_target = generate_synthetic_target(
+                model=model,
+                X=aligned_df,
+                task_type=model_task_type,
+            )
+
+            df = aligned_df.copy()
+            df[resolved_target_column] = synthetic_target.values
+
+            if sensitive_col not in df.columns and sensitive_col in aligned_df.columns:
+                pass
+            elif sensitive_col not in df.columns:
+                df, sensitive_col = ensure_sensitive_column(
+                    df,
+                    sensitive_col,
+                    hints=request.sensitive_columns,
+                )
+                resolved_sensitive_columns = [sensitive_col]
             # ---------------------------------------------
             # SAVE GENERATED DATASET
             # ---------------------------------------------
 
             synthetic_dataset_path = (
-
-                f"generated_"
-                f"{request.target_column}.csv"
+                f"generated_{resolved_target_column}.csv"
             )
 
             save_synthetic_dataset(
@@ -263,21 +309,39 @@ def run_governance(
                     detail="Dataset not found"
                 )
 
-            df = pd.read_csv(
+            raw_df = pd.read_csv(
                 request.dataset_path
             )
+
+            try:
+                df, resolved_target_column, sensitive_col = prepare_uploaded_dataset(
+                    raw_df,
+                    target_column=request.target_column,
+                    sensitive_column=(
+                        request.sensitive_columns[0]
+                        if request.sensitive_columns
+                        else "gender"
+                    ),
+                    hints=request.sensitive_columns,
+                )
+                resolved_sensitive_columns = [sensitive_col]
+            except ValueError as dataset_error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=str(dataset_error),
+                )
 
         # ---------------------------------------------------
         # VALIDATE TARGET
         # ---------------------------------------------------
 
-        if request.target_column not in df.columns:
+        if resolved_target_column not in df.columns:
 
             raise HTTPException(
                 status_code=400,
                 detail=(
                     f"Target column "
-                    f"'{request.target_column}' "
+                    f"'{resolved_target_column}' "
                     f"not found"
                 )
             )
@@ -288,7 +352,7 @@ def run_governance(
 
         validate_sensitive_features(
             df,
-            request.sensitive_columns
+            resolved_sensitive_columns
         )
 
         # ---------------------------------------------------
@@ -303,7 +367,7 @@ def run_governance(
                 df=df,
 
                 target_column=
-                    request.target_column
+                    resolved_target_column
             )
         )
 
@@ -319,7 +383,7 @@ def run_governance(
                 df=df,
 
                 target_column=
-                    request.target_column
+                    resolved_target_column
             )
         )
 
@@ -335,6 +399,22 @@ def run_governance(
             "task_type"
         ]
 
+        if task_type in (
+            "binary_classification",
+            "multiclass_classification",
+            "classification",
+        ):
+            y_true = ensure_binary_labels(y_true)
+            y_pred = ensure_binary_labels(y_pred)
+
+        audit_preview = build_audit_dataset_preview(
+            df=df,
+            y_true=y_true,
+            y_pred=y_pred,
+            sensitive_column=resolved_sensitive_columns[0],
+            limit=10,
+        )
+
         # ---------------------------------------------------
         # FAIRNESS ANALYSIS
         # ---------------------------------------------------
@@ -349,7 +429,7 @@ def run_governance(
                 y_pred=y_pred,
 
                 sensitive_columns=
-                    request.sensitive_columns
+                    resolved_sensitive_columns
             )
         )
 
@@ -411,11 +491,23 @@ def run_governance(
 
                 else None,
 
+            "evaluated_rows": len(df),
+
+            "preview_row_limit": 10,
+
+            "preview_row_count": len(audit_preview),
+
             "model_metadata":
                 metadata,
 
             "model_inspection":
                 inspection,
+
+            "target_column":
+                resolved_target_column,
+
+            "sensitive_columns":
+                resolved_sensitive_columns,
 
             "deterministic_metrics":
                 deterministic_metrics,
@@ -424,6 +516,9 @@ def run_governance(
                 fairness_metrics,
 
             "dataset_preview":
+                audit_preview,
+
+            "raw_dataset_preview":
                 df.head(10).to_dict(
                     orient="records"
                 ),
