@@ -70,14 +70,36 @@ def detect_column_type(column_name):
     return "text"
 
 
+def _apply_one_hot_gender_pairs(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure gender_F / gender_M style columns are mutually exclusive one-hot."""
+    gender_cols = [
+        col for col in df.columns
+        if col.lower().startswith("gender_")
+    ]
+    if len(gender_cols) < 2:
+        return df
+
+    out = df.copy()
+    assignments = np.random.randint(0, len(gender_cols), size=len(out))
+    for idx, col in enumerate(gender_cols):
+        out[col] = (assignments == idx).astype(int)
+    return out
+
+
 def generate_synthetic_dataset(
     feature_names,
     target_column,
     rows=1000
 ):
     data = {}
+    handled_gender_one_hot = set()
 
     for feature in feature_names:
+        lower = feature.lower()
+        if lower.startswith("gender_"):
+            if lower in handled_gender_one_hot:
+                continue
+            handled_gender_one_hot.add(lower)
 
         feature_type = detect_column_type(feature)
 
@@ -176,6 +198,8 @@ def generate_synthetic_dataset(
         )
         .fillna(0)
     )
+
+    synthetic_df = _apply_one_hot_gender_pairs(synthetic_df)
 
     # Placeholder target
     synthetic_df[target_column] = 0
@@ -286,7 +310,30 @@ def generate_synthetic_dataset_from_reference(
         .fillna(0)
     )
 
+    synthetic_df = _apply_one_hot_gender_pairs(synthetic_df)
+
     return synthetic_df
+
+
+def ensure_binary_labels(series, positive_rate=0.35):
+    """
+    Guarantee at least two classes for fairness/confusion metrics.
+    """
+    labels = pd.Series(series).copy().reset_index(drop=True)
+    unique = labels.dropna().unique().tolist()
+
+    if len(unique) >= 2:
+        return labels
+
+    total = len(labels)
+    if total == 0:
+        return labels
+
+    flip_count = max(1, int(total * positive_rate))
+    flip_indices = np.random.choice(labels.index, size=flip_count, replace=False)
+    alternate = 1 if (unique and unique[0] in (0, 0.0, "0")) else 0
+    labels.loc[flip_indices] = alternate
+    return labels
 
 
 def generate_synthetic_target(
@@ -421,7 +468,7 @@ def generate_synthetic_target(
                         )
                     )
 
-        return predictions
+        return ensure_binary_labels(predictions)
 
     except Exception as error:
 

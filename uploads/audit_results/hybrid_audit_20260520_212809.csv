@@ -1,0 +1,4 @@
+audit_timestamp,model_description,overall_status,rule_metric_name,rule_sensitive_feature,rule_operator,threshold_min,threshold_max,actual_value,rule_status,source_excerpt,confidence,disparate_impact_ratio,demographic_parity_difference,selection_rate_min,selection_rate_max,row_count,tp,tn,fp,fn,precision,recall,f1_score,classification_accuracy
+2026-05-20T21:28:09.820952,fraud,FAIL,disparate_impact_ratio,,>=,0.8,,0.9214,PASS,,,0.9214,0.0286,0.489,0.511,1000,0,650,0,350,0.4225,0.65,0.5121,0.65
+2026-05-20T21:28:09.820952,fraud,FAIL,demographic_parity_difference,,between,-0.1,0.1,0.0286,PASS,,,0.9214,0.0286,0.489,0.511,1000,0,650,0,350,0.4225,0.65,0.5121,0.65
+2026-05-20T21:28:09.820952,fraud,FAIL,classification_accuracy,,>=,0.7,,0.65,FAIL,,,0.9214,0.0286,0.489,0.511,1000,0,650,0,350,0.4225,0.65,0.5121,0.65

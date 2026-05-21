@@ -938,10 +938,11 @@ class ModelService:
     def run_statistical_governance(
         self,
         model_id: str,
-        dataset_path: str,
-        sensitive_feature: str,
-        target_column: str,
-        generate_synthetic: bool = False
+        dataset_path: str | None,
+        sensitive_feature: str | None = None,
+        target_column: str | None = None,
+        generate_synthetic: bool = False,
+        variance_factors: list[str] | None = None,
     ) -> dict:
         """
         Runs statistical governance check on a model using mlmodel services.
@@ -982,11 +983,21 @@ class ModelService:
                         dataset_path = dfb
                         break
 
+            sensitive_columns = []
+            if sensitive_feature:
+                sensitive_columns.append(sensitive_feature)
+            if variance_factors:
+                for factor in variance_factors:
+                    if factor and factor not in sensitive_columns:
+                        sensitive_columns.append(factor)
+            if not sensitive_columns:
+                sensitive_columns = ["gender"]
+
             req = GovernanceRequest(
                 model_path=model_path,
-                dataset_path=dataset_path,
-                target_column=target_column,
-                sensitive_columns=[sensitive_feature],
+                dataset_path=dataset_path if not generate_synthetic else None,
+                target_column=target_column or "approved",
+                sensitive_columns=sensitive_columns,
                 generate_synthetic=generate_synthetic
             )
             

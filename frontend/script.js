@@ -340,7 +340,7 @@ function setupFairnessDataUpload() {
         wrap.style.display = uploadMode ? 'block' : 'none';
         if (!uploadMode) {
             fairnessDataFilePath = null;
-            status.textContent = 'Required columns: true_label, prediction, sensitive_feature';
+            status.textContent = 'Fraud model: use uploads/fairness_data/fraud_model_synthetic_dataset.csv (needs fraud + features + gender_F/gender_M). Labels 0/1 display correctly.';
         }
     };
     modeSel.addEventListener('change', refreshVisibility);
@@ -816,6 +816,8 @@ function renderResults(data) {
     const matrices = hybrid.fairness_matrices || {};
     const rules = hybrid.rule_results || [];
     const dataset = data.deterministic_dataset || {};
+    const glossary = data.metric_glossary || DEFAULT_METRIC_GLOSSARY;
+    const help = (key) => metricHelp(glossary, key);
 
     const behavioralRan = !!summary.behavioral_phase_executed;
     const avg_f = behavioralRan ? Number(summary.avg_fairness) : null;
@@ -824,26 +826,38 @@ function renderResults(data) {
     const overall = behavioralRan ? ((avg_f + avg_c + avg_a) / 3).toFixed(1) : null;
     const fmt = (v, d = 4) => (v === null || v === undefined || Number.isNaN(Number(v)) ? 'N/A' : Number(v).toFixed(d));
 
-    document.getElementById('audit-summary').classList.remove('hidden');
-    document.getElementById('audit-summary').innerHTML = `
+    const scorecardPanel = behavioralRan ? `
         <div class="panel glass">
-            <h2><i data-lucide="award"></i> Fairness Scorecard</h2>
+            <h2><i data-lucide="award"></i> Behavioral Fairness Scorecard</h2>
             <p class="muted">${escapeHtml(summary.model_description)} · ${summary.test_count} behavioral tests · ${new Date(summary.timestamp).toLocaleString()}</p>
-            <p class="muted">Model type: <strong>${escapeHtml(summary.model_type_resolved || 'auto')}</strong> · Assurance: <strong>${escapeHtml(summary.assurance_level || 'N/A')}</strong> · Ingestion: <strong>${escapeHtml(summary.ml_ingestion_level || 'N/A')}</strong></p>
-            ${behavioralRan && data.policy_violations > 0
+            ${data.policy_violations > 0
                 ? `<p style="color:var(--danger);margin-top:0.5rem">Warning: ${data.policy_violations} policy violation(s) detected</p>`
-                : behavioralRan
-                    ? `<p style="color:var(--accent);margin-top:0.5rem">OK: No policy violations detected</p>`
-                    : `<p class="muted" style="margin-top:0.5rem">Behavioral scoring was not executed in this run.</p>`
+                : `<p style="color:var(--accent);margin-top:0.5rem">OK: No behavioral policy violations detected</p>`
             }
             <div class="scorecard">
-                ${createGauge(behavioralRan ? parseFloat(overall) : null, 'Overall', true)}
+                ${createGauge(parseFloat(overall), 'Overall', true)}
                 ${createGauge(avg_f, 'Fairness')}
                 ${createGauge(avg_c, 'Compliance')}
                 ${createGauge(avg_a, 'Accuracy')}
             </div>
             <p class="muted">Factors tested: ${summary.variance_factors.map(f => escapeHtml(f)).join(', ')}</p>
         </div>
+    ` : (summary.deterministic_phase_executed ? `
+        <div class="panel glass">
+            <h2><i data-lucide="bar-chart-3"></i> Statistical Audit Summary</h2>
+            <p class="muted">${escapeHtml(summary.model_description)} · ${summary.deterministic_rows_evaluated ?? metrics.row_count ?? 0} rows evaluated · ${new Date(summary.timestamp).toLocaleString()}</p>
+            <p class="muted" style="margin-top:0.5rem">Behavioral (LLM) testing was not run. See deterministic fairness metrics below.</p>
+            <div class="metrics-grid" style="margin-top:0.75rem">
+                <div class="metric-item"><label>Hybrid Status</label><strong>${escapeHtml(hybrid.overall_status || 'N/A')}</strong></div>
+                <div class="metric-item"><label>Model Type</label><strong>${escapeHtml(summary.model_type_resolved || 'ml')}</strong></div>
+            </div>
+            <p class="muted" style="margin-top:0.5rem">Variance factors: ${summary.variance_factors.map(f => escapeHtml(f)).join(', ')}</p>
+        </div>
+    ` : '');
+
+    document.getElementById('audit-summary').classList.remove('hidden');
+    document.getElementById('audit-summary').innerHTML = `
+        ${scorecardPanel}
 
         <div class="results-actions">
             <button class="btn-accent" id="download-report-btn"><i data-lucide="file-down"></i> Download PDF Report</button>
@@ -854,11 +868,31 @@ function renderResults(data) {
             <h2><i data-lucide="scale"></i> Deterministic Fairness Metrics</h2>
             <div class="metrics-grid">
                 <div class="metric-item"><label>Hybrid Status</label><strong>${escapeHtml(hybrid.overall_status || 'N/A')}</strong></div>
-                <div class="metric-item"><label>Disparate Impact Ratio</label><strong>${fmt(metrics.disparate_impact_ratio, 4)}</strong></div>
-                <div class="metric-item"><label>Demographic Parity Difference</label><strong>${fmt(metrics.demographic_parity_difference, 4)}</strong></div>
-                <div class="metric-item"><label>Selection Rate (Min)</label><strong>${fmt(metrics.selection_rate_min, 4)}</strong></div>
-                <div class="metric-item"><label>Selection Rate (Max)</label><strong>${fmt(metrics.selection_rate_max, 4)}</strong></div>
-                <div class="metric-item"><label>Rows Evaluated</label><strong>${escapeHtml(metrics.row_count ?? 0)}</strong></div>
+                <div class="metric-item" title="${escapeHtml(help('disparate_impact_ratio'))}">
+                    <label>${escapeHtml(metricLabel(glossary, 'disparate_impact_ratio', 'Disparate Impact Ratio'))}</label>
+                    <strong>${fmt(metrics.disparate_impact_ratio, 4)}</strong>
+                    <p class="muted" style="font-size:0.8rem;margin:0.25rem 0 0">${escapeHtml(help('disparate_impact_ratio'))}</p>
+                </div>
+                <div class="metric-item" title="${escapeHtml(help('demographic_parity_difference'))}">
+                    <label>${escapeHtml(metricLabel(glossary, 'demographic_parity_difference', 'Demographic Parity Difference'))}</label>
+                    <strong>${fmt(metrics.demographic_parity_difference, 4)}</strong>
+                    <p class="muted" style="font-size:0.8rem;margin:0.25rem 0 0">${escapeHtml(help('demographic_parity_difference'))}</p>
+                </div>
+                <div class="metric-item" title="${escapeHtml(help('selection_rate_min'))}">
+                    <label>Selection Rate (Min)</label><strong>${fmt(metrics.selection_rate_min, 4)}</strong>
+                </div>
+                <div class="metric-item" title="${escapeHtml(help('selection_rate_max'))}">
+                    <label>Selection Rate (Max)</label><strong>${fmt(metrics.selection_rate_max, 4)}</strong>
+                </div>
+                <div class="metric-item"><label>Rows Evaluated (full dataset)</label><strong>${escapeHtml(metrics.row_count ?? summary.deterministic_rows_evaluated ?? 0)}</strong><p class="muted" style="font-size:0.8rem;margin:0.25rem 0 0">All rows used for DIR, DPD, and confusion metrics.</p></div>
+            </div>
+            <div class="metrics-grid" style="margin-top:0.75rem">
+                <div class="metric-item"><label title="${escapeHtml(help('true_positive'))}">TP</label><strong>${escapeHtml(metrics.tp ?? 'N/A')}</strong><p class="muted" style="font-size:0.75rem;margin:0.2rem 0 0">${escapeHtml(help('true_positive'))}</p></div>
+                <div class="metric-item"><label title="${escapeHtml(help('true_negative'))}">TN</label><strong>${escapeHtml(metrics.tn ?? 'N/A')}</strong><p class="muted" style="font-size:0.75rem;margin:0.2rem 0 0">${escapeHtml(help('true_negative'))}</p></div>
+                <div class="metric-item"><label title="${escapeHtml(help('false_positive'))}">FP</label><strong>${escapeHtml(metrics.fp ?? 'N/A')}</strong><p class="muted" style="font-size:0.75rem;margin:0.2rem 0 0">${escapeHtml(help('false_positive'))}</p></div>
+                <div class="metric-item"><label title="${escapeHtml(help('false_negative'))}">FN</label><strong>${escapeHtml(metrics.fn ?? 'N/A')}</strong><p class="muted" style="font-size:0.75rem;margin:0.2rem 0 0">${escapeHtml(help('false_negative'))}</p></div>
+                <div class="metric-item"><label title="${escapeHtml(help('accuracy'))}">Accuracy</label><strong>${fmt(metrics.classification_accuracy ?? metrics.accuracy, 4)}</strong><p class="muted" style="font-size:0.75rem;margin:0.2rem 0 0">${escapeHtml(help('accuracy'))}</p></div>
+                <div class="metric-item"><label title="${escapeHtml(help('precision'))}">Precision</label><strong>${fmt(metrics.precision, 4)}</strong><p class="muted" style="font-size:0.75rem;margin:0.2rem 0 0">${escapeHtml(help('precision'))}</p></div>
             </div>
             ${data.deterministic_warning ? `<p style="color:var(--warning);margin-top:0.8rem">${escapeHtml(data.deterministic_warning)}</p>` : ''}
         </div>
@@ -890,10 +924,10 @@ function renderResults(data) {
 
         <div class="panel glass">
             <h2><i data-lucide="grid-2x2"></i> Confusion Matrices</h2>
-            <p class="muted">Matrix format: [[TN, FP], [FN, TP]]</p>
+            <p class="muted">${escapeHtml(help('confusion_matrix') || 'Matrix format: [[TN, FP], [FN, TP]]')}</p>
             <div class="table-wrap">
                 <table class="data-table compact">
-                    <thead><tr><th>Scope</th><th>Matrix</th><th>TPR</th><th>FPR</th><th>Precision</th><th>Accuracy</th></tr></thead>
+                    <thead><tr><th>Scope</th><th>Matrix</th><th title="${escapeHtml(help('tpr'))}">TPR</th><th title="${escapeHtml(help('fpr'))}">FPR</th><th title="${escapeHtml(help('precision'))}">Precision</th><th title="${escapeHtml(help('accuracy'))}">Accuracy</th></tr></thead>
                     <tbody>
                         <tr>
                             <td>Overall</td>
@@ -920,17 +954,17 @@ function renderResults(data) {
 
         <div class="panel glass">
             <h2><i data-lucide="table"></i> Full Deterministic Dataset Used</h2>
-            <p class="muted">Rows: ${escapeHtml(dataset.row_count ?? 0)} · Source: ${escapeHtml(dataset.source_mode || 'N/A')}${dataset.truncated ? ' · showing first 10 rows' : ''}</p>
+            <p class="muted"><strong>${escapeHtml(dataset.total_rows_evaluated ?? dataset.row_count ?? 0)}</strong> rows used for metrics · Source: ${escapeHtml(dataset.source_mode || 'N/A')} · Preview shows <strong>${escapeHtml(dataset.preview_row_count ?? dataset.rows?.length ?? 10)}</strong> of ${escapeHtml(dataset.total_rows_evaluated ?? dataset.row_count ?? 0)} rows</p>
             <div class="table-wrap">
                 <table class="data-table compact">
-                    <thead><tr><th>#</th><th>true_label</th><th>prediction</th><th>sensitive_feature</th></tr></thead>
+                    <thead><tr><th>#</th><th title="${escapeHtml(help('true_label'))}">true_label</th><th title="${escapeHtml(help('prediction'))}">prediction</th><th title="${escapeHtml(help('sensitive_feature'))}">sensitive_feature</th></tr></thead>
                     <tbody>
                         ${(Array.isArray(dataset.rows) && dataset.rows.length) ? dataset.rows.map((row, idx) => `
                             <tr>
                                 <td>${idx + 1}</td>
-                                <td>${escapeHtml(row.true_label)}</td>
-                                <td>${escapeHtml(row.prediction)}</td>
-                                <td>${escapeHtml(row.sensitive_feature)}</td>
+                                <td>${escapeHtml(row.true_label ?? row.trueLabel ?? '')}</td>
+                                <td>${escapeHtml(row.prediction ?? '')}</td>
+                                <td>${escapeHtml(row.sensitive_feature ?? row.sensitiveFeature ?? '')}</td>
                             </tr>
                         `).join('') : `<tr><td colspan="4" class="muted">No deterministic dataset rows available.</td></tr>`}
                     </tbody>
@@ -1173,8 +1207,64 @@ async function loadAdmin() {
 
 // ========== UTILITY ==========
 function escapeHtml(text) {
-    if (!text) return '';
+    if (text === null || text === undefined) return '';
     const div = document.createElement('div');
     div.textContent = String(text);
     return div.innerHTML;
+}
+
+const DEFAULT_METRIC_GLOSSARY = {
+    true_positive: { short_label: 'True Positive (TP)', explanation: 'Correctly flagged positive cases.' },
+    true_negative: { short_label: 'True Negative (TN)', explanation: 'Correctly cleared negative cases.' },
+    false_positive: { short_label: 'False Positive (FP)', explanation: 'False alarm — predicted positive but actual was negative.' },
+    false_negative: { short_label: 'False Negative (FN)', explanation: 'Missed case — predicted negative but actual was positive.' },
+    accuracy: { short_label: 'Accuracy', explanation: 'Overall share of correct predictions.' },
+    precision: { short_label: 'Precision', explanation: 'When the model predicts positive, how often it is correct.' },
+    recall: { short_label: 'Recall (TPR)', explanation: 'Of all actual positives, how many the model caught.' },
+    tpr: { short_label: 'True Positive Rate', explanation: 'Fraction of real positives correctly identified.' },
+    fpr: { short_label: 'False Positive Rate', explanation: 'Fraction of real negatives wrongly flagged as positive.' },
+    f1_score: { short_label: 'F1 Score', explanation: 'Balance between precision and recall.' },
+    disparate_impact_ratio: { short_label: 'DIR', explanation: 'Ratio of selection rates across groups; below 0.80 may indicate bias.' },
+    demographic_parity_difference: { short_label: 'DPD', explanation: 'Difference in positive rates between groups.' },
+    true_label: { short_label: 'True Label', explanation: 'Actual outcome from your dataset (ground truth).' },
+    prediction: { short_label: 'Prediction', explanation: 'Model output for that row.' },
+    sensitive_feature: { short_label: 'Sensitive Feature', explanation: 'Group used for fairness comparison (e.g., gender).' },
+};
+
+function metricHelp(glossary, key) {
+    const entry = (glossary || DEFAULT_METRIC_GLOSSARY)[key];
+    if (!entry) return '';
+    return entry.explanation || '';
+}
+
+function metricLabel(glossary, key, fallback) {
+    const entry = (glossary || DEFAULT_METRIC_GLOSSARY)[key];
+    return entry?.short_label || fallback;
+}
+
+function renderMetricGlossary(glossary) {
+    const g = glossary || DEFAULT_METRIC_GLOSSARY;
+    const keys = [
+        'disparate_impact_ratio', 'demographic_parity_difference',
+        'true_positive', 'true_negative', 'false_positive', 'false_negative',
+        'accuracy', 'precision', 'recall', 'fpr', 'f1_score',
+        'true_label', 'prediction', 'sensitive_feature',
+    ];
+    return `
+        <div class="panel glass" style="margin-top:1rem">
+            <h2><i data-lucide="book-open"></i> Metric Guide (Plain Language)</h2>
+            <div class="metrics-grid">
+                ${keys.map(k => {
+                    const item = g[k];
+                    if (!item) return '';
+                    return `
+                        <div class="metric-item" title="${escapeHtml(item.explanation)}">
+                            <label>${escapeHtml(item.short_label || k)}</label>
+                            <p class="muted" style="font-size:0.82rem;margin:0.35rem 0 0;line-height:1.35">${escapeHtml(item.explanation)}</p>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `;
 }

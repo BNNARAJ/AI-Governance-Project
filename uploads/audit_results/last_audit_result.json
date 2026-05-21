@@ -1,54 +1,960 @@
 {
   "status": "Audit Complete",
   "summary": {
-    "timestamp": "2026-05-20T18:17:28.749257",
-    "model_description": "loan",
+    "timestamp": "2026-05-21T09:37:52.496435",
+    "model_description": "fraud",
     "variance_factors": [
       "Gender"
     ],
-    "avg_fairness": 0,
-    "avg_compliance": 0,
-    "avg_accuracy": 0,
+    "model_type_resolved": "ml",
+    "avg_fairness": null,
+    "avg_compliance": null,
+    "avg_accuracy": null,
     "test_count": 0,
-    "policy_violations": 0,
-    "deterministic_phase_executed": true
+    "deterministic_rows_evaluated": 1000,
+    "deterministic_preview_rows": 10,
+    "policy_violations": 1,
+    "behavioral_phase_executed": false,
+    "deterministic_phase_executed": true,
+    "hybrid_overall_status": "FAIL"
   },
   "results": [],
-  "policy_violations": 0,
+  "policy_violations": 1,
   "hybrid_validation": {
     "overall_status": "FAIL",
     "fairness_metrics": {
-      "disparate_impact_ratio": null,
-      "demographic_parity_difference": null,
-      "row_count": 0,
-      "overall_confusion_matrix": null,
-      "overall_rates": {
-        "accuracy": null,
-        "precision": null,
-        "tpr": null
-      },
-      "tp": null,
-      "tn": null,
-      "fp": null,
-      "fn": null,
-      "precision": null,
-      "recall": null,
-      "f1_score": null,
-      "classification_accuracy": null,
-      "confusion_matrix": null
+      "disparate_impact_ratio": 0.0,
+      "demographic_parity_difference": 0.0038,
+      "selection_rate_min": 0.47200000000000003,
+      "selection_rate_max": 0.528,
+      "row_count": 1000,
+      "tp": 1,
+      "tn": 849,
+      "fp": 1,
+      "fn": 149,
+      "precision": 0.7981,
+      "recall": 0.85,
+      "f1_score": 0.783,
+      "classification_accuracy": 0.85,
+      "confusion_matrix": [
+        [
+          849,
+          1
+        ],
+        [
+          149,
+          1
+        ]
+      ]
     },
-    "rule_results": []
+    "fairness_matrices": {
+      "overall_confusion_matrix": [
+        [
+          849,
+          1
+        ],
+        [
+          149,
+          1
+        ]
+      ],
+      "overall_rates": {
+        "accuracy": 0.85,
+        "precision": 0.7981,
+        "tpr": 0.0067,
+        "fpr": 0.0012
+      }
+    },
+    "rule_results": [
+      {
+        "metric_name": "disparate_impact_ratio",
+        "operator": ">=",
+        "threshold_min": 0.8,
+        "threshold_max": null,
+        "actual_value": 0.0,
+        "status": "FAIL",
+        "severity": "mandatory"
+      },
+      {
+        "metric_name": "demographic_parity_difference",
+        "operator": "between",
+        "threshold_min": -0.1,
+        "threshold_max": 0.1,
+        "actual_value": 0.0038,
+        "status": "PASS",
+        "severity": "mandatory"
+      },
+      {
+        "metric_name": "classification_accuracy",
+        "operator": ">=",
+        "threshold_min": 0.7,
+        "threshold_max": null,
+        "actual_value": 0.85,
+        "status": "PASS",
+        "severity": "advisory"
+      }
+    ]
   },
   "deterministic_dataset": {
-    "row_count": 0,
-    "source_mode": "uploaded",
+    "row_count": 1000,
+    "total_rows_evaluated": 1000,
+    "preview_row_limit": 10,
+    "preview_row_count": 10,
+    "source_mode": "synthetic",
     "truncated": true,
-    "rows": []
+    "rows": [
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group B"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group B"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group A"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group A"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group A"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group A"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group B"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group B"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group A"
+      },
+      {
+        "true_label": 1,
+        "prediction": 0,
+        "sensitive_feature": "Group B"
+      }
+    ]
   },
-  "dataset_sample": [],
+  "dataset_sample": [
+    {
+      "true_label": 0,
+      "prediction": 0,
+      "sensitive_feature": "Group B"
+    },
+    {
+      "true_label": 0,
+      "prediction": 0,
+      "sensitive_feature": "Group B"
+    },
+    {
+      "true_label": 0,
+      "prediction": 0,
+      "sensitive_feature": "Group A"
+    },
+    {
+      "true_label": 0,
+      "prediction": 0,
+      "sensitive_feature": "Group A"
+    },
+    {
+      "true_label": 0,
+      "prediction": 0,
+      "sensitive_feature": "Group A"
+    },
+    {
+      "true_label": 0,
+      "prediction": 0,
+      "sensitive_feature": "Group A"
+    },
+    {
+      "true_label": 0,
+      "prediction": 0,
+      "sensitive_feature": "Group B"
+    },
+    {
+      "true_label": 0,
+      "prediction": 0,
+      "sensitive_feature": "Group B"
+    },
+    {
+      "true_label": 0,
+      "prediction": 0,
+      "sensitive_feature": "Group A"
+    },
+    {
+      "true_label": 1,
+      "prediction": 0,
+      "sensitive_feature": "Group B"
+    }
+  ],
   "statistical_governance": {
-    "status": "failed",
-    "error": "500: name 'aligned_features' is not defined"
+    "status": "success",
+    "dataset_type": "synthetic",
+    "synthetic_rows": 1000,
+    "evaluated_rows": 1000,
+    "preview_row_limit": 10,
+    "preview_row_count": 10,
+    "model_metadata": {
+      "artifact_path": "random_forest_model_100",
+      "flavors": {
+        "python_function": {
+          "env": {
+            "conda": "conda.yaml",
+            "virtualenv": "python_env.yaml"
+          },
+          "loader_module": "mlflow.sklearn",
+          "model_path": "model.pkl",
+          "predict_fn": "predict",
+          "python_version": "3.11.4"
+        },
+        "sklearn": {
+          "code": null,
+          "pickled_model": "model.pkl",
+          "serialization_format": "cloudpickle",
+          "sklearn_version": "1.5.2"
+        }
+      },
+      "run_id": "031308409e78467083d5a7fd81a474b8",
+      "utc_time_created": "2024-10-06 11:21:34.285066",
+      "model_uuid": "4ee08c18b33f449bbc735d51d6c20b85",
+      "mlflow_version": "2.16.2",
+      "signature": null
+    },
+    "model_inspection": {
+      "framework": "scikit-learn",
+      "model_type": "classification",
+      "feature_names": [
+        "Time",
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6",
+        "V7",
+        "V8",
+        "V9",
+        "V10",
+        "V11",
+        "V12",
+        "V13",
+        "V14",
+        "V15",
+        "V16",
+        "V17",
+        "V18",
+        "V19",
+        "V20",
+        "V21",
+        "V22",
+        "V23",
+        "V24",
+        "V25",
+        "V26",
+        "V27",
+        "V28",
+        "Amount"
+      ],
+      "total_features": 30,
+      "prediction_capabilities": {
+        "predict": true,
+        "predict_proba": true,
+        "decision_function": false
+      },
+      "sensitive_feature_candidates": [],
+      "loaded_model_format": "mlflow",
+      "loaded_model_path": "C:\\Users\\smita\\Final Governance\\AI-Governance-Project\\backend\\uploaded_models\\f312c4f5-22d2-4247-a96e-f4d92a909340\\extracted\\Credit-Card-Fraud-Detection-main\\random_forest_artifacts\\031308409e78467083d5a7fd81a474b8\\artifacts\\random_forest_model_100",
+      "evaluated_task_type": "binary_classification"
+    },
+    "target_column": "approved",
+    "sensitive_columns": [
+      "Gender"
+    ],
+    "deterministic_metrics": {
+      "task_type": "binary_classification",
+      "feature_alignment": {
+        "preparation_mode": "fully_aligned",
+        "expected_features": [
+          "Time",
+          "V1",
+          "V2",
+          "V3",
+          "V4",
+          "V5",
+          "V6",
+          "V7",
+          "V8",
+          "V9",
+          "V10",
+          "V11",
+          "V12",
+          "V13",
+          "V14",
+          "V15",
+          "V16",
+          "V17",
+          "V18",
+          "V19",
+          "V20",
+          "V21",
+          "V22",
+          "V23",
+          "V24",
+          "V25",
+          "V26",
+          "V27",
+          "V28",
+          "Amount"
+        ],
+        "input_features": [
+          "Time",
+          "V1",
+          "V2",
+          "V3",
+          "V4",
+          "V5",
+          "V6",
+          "V7",
+          "V8",
+          "V9",
+          "V10",
+          "V11",
+          "V12",
+          "V13",
+          "V14",
+          "V15",
+          "V16",
+          "V17",
+          "V18",
+          "V19",
+          "V20",
+          "V21",
+          "V22",
+          "V23",
+          "V24",
+          "V25",
+          "V26",
+          "V27",
+          "V28",
+          "Amount",
+          "Gender"
+        ],
+        "missing_features": [],
+        "extra_features": [
+          "Gender"
+        ]
+      },
+      "confusion_metrics": {
+        "accuracy": 0.85,
+        "precision": 0.7981,
+        "recall": 0.85,
+        "f1_score": 0.783,
+        "balanced_accuracy": 0.5027,
+        "matthews_corrcoef": 0.0439,
+        "labels": [
+          "0",
+          "1"
+        ],
+        "confusion_matrix": [
+          [
+            849,
+            1
+          ],
+          [
+            149,
+            1
+          ]
+        ],
+        "true_positive": 1,
+        "true_negative": 849,
+        "false_positive": 1,
+        "false_negative": 149,
+        "true_positive_rate": 0.0067,
+        "false_positive_rate": 0.0012
+      },
+      "classification_report": {
+        "0": {
+          "precision": 0.8507014028056112,
+          "recall": 0.9988235294117647,
+          "f1-score": 0.9188311688311688,
+          "support": 850.0
+        },
+        "1": {
+          "precision": 0.5,
+          "recall": 0.006666666666666667,
+          "f1-score": 0.013157894736842105,
+          "support": 150.0
+        },
+        "accuracy": 0.85,
+        "macro avg": {
+          "precision": 0.6753507014028056,
+          "recall": 0.5027450980392156,
+          "f1-score": 0.46599453178400546,
+          "support": 1000.0
+        },
+        "weighted avg": {
+          "precision": 0.7980961923847696,
+          "recall": 0.85,
+          "f1-score": 0.7829801777170199,
+          "support": 1000.0
+        }
+      },
+      "auc_metrics": {
+        "roc_auc": 0.5121
+      },
+      "prediction_distribution": {
+        "0": {
+          "count": 998,
+          "percentage": 99.8
+        },
+        "1": {
+          "count": 2,
+          "percentage": 0.2
+        }
+      },
+      "per_class_accuracy": {
+        "0": 0.9988,
+        "1": 0.0067
+      }
+    },
+    "fairness_metrics": {
+      "Gender": {
+        "sensitive_feature": "Gender",
+        "distribution": {
+          "Group A": {
+            "count": 528,
+            "percentage": 52.8
+          },
+          "Group B": {
+            "count": 472,
+            "percentage": 47.2
+          }
+        },
+        "demographic_parity": {
+          "dpd": {
+            "value": 0.0038,
+            "explanation": "Demographic Parity Difference is 0.0038. Higher values indicate greater difference between groups."
+          },
+          "dir": {
+            "value": 0.0,
+            "explanation": "Disparate Impact Ratio is 0.0. Values below 0.80 may indicate bias."
+          }
+        },
+        "policy_evaluation": {
+          "overall_fairness_status": "FAILED",
+          "violations": [
+            "DIR below 0.80"
+          ]
+        }
+      }
+    },
+    "dataset_preview": [
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group B"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group B"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group A"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group A"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group A"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group A"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group B"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group B"
+      },
+      {
+        "true_label": 0,
+        "prediction": 0,
+        "sensitive_feature": "Group A"
+      },
+      {
+        "true_label": 1,
+        "prediction": 0,
+        "sensitive_feature": "Group B"
+      }
+    ],
+    "raw_dataset_preview": [
+      {
+        "Time": 586,
+        "V1": 843,
+        "V2": 956,
+        "V3": 470,
+        "V4": 56,
+        "V5": 917,
+        "V6": 682,
+        "V7": 482,
+        "V8": 239,
+        "V9": 770,
+        "V10": 812,
+        "V11": 426,
+        "V12": 542,
+        "V13": 821,
+        "V14": 188,
+        "V15": 279,
+        "V16": 832,
+        "V17": 750,
+        "V18": 25,
+        "V19": 688,
+        "V20": 163,
+        "V21": 226,
+        "V22": 872,
+        "V23": 471,
+        "V24": 344,
+        "V25": 112,
+        "V26": 771,
+        "V27": 543,
+        "V28": 57,
+        "Amount": 7995,
+        "approved": 0,
+        "Gender": "Group B"
+      },
+      {
+        "Time": 830,
+        "V1": 24,
+        "V2": 29,
+        "V3": 767,
+        "V4": 513,
+        "V5": 802,
+        "V6": 331,
+        "V7": 193,
+        "V8": 779,
+        "V9": 765,
+        "V10": 899,
+        "V11": 50,
+        "V12": 592,
+        "V13": 542,
+        "V14": 841,
+        "V15": 287,
+        "V16": 600,
+        "V17": 587,
+        "V18": 165,
+        "V19": 857,
+        "V20": 593,
+        "V21": 818,
+        "V22": 593,
+        "V23": 145,
+        "V24": 680,
+        "V25": 63,
+        "V26": 582,
+        "V27": 384,
+        "V28": 304,
+        "Amount": 1073,
+        "approved": 0,
+        "Gender": "Group B"
+      },
+      {
+        "Time": 872,
+        "V1": 472,
+        "V2": 809,
+        "V3": 85,
+        "V4": 34,
+        "V5": 295,
+        "V6": 585,
+        "V7": 319,
+        "V8": 751,
+        "V9": 873,
+        "V10": 491,
+        "V11": 46,
+        "V12": 871,
+        "V13": 769,
+        "V14": 886,
+        "V15": 227,
+        "V16": 142,
+        "V17": 794,
+        "V18": 540,
+        "V19": 144,
+        "V20": 949,
+        "V21": 250,
+        "V22": 959,
+        "V23": 165,
+        "V24": 382,
+        "V25": 639,
+        "V26": 633,
+        "V27": 909,
+        "V28": 254,
+        "Amount": 9959,
+        "approved": 0,
+        "Gender": "Group A"
+      },
+      {
+        "Time": 903,
+        "V1": 941,
+        "V2": 565,
+        "V3": 231,
+        "V4": 843,
+        "V5": 542,
+        "V6": 893,
+        "V7": 431,
+        "V8": 727,
+        "V9": 49,
+        "V10": 314,
+        "V11": 314,
+        "V12": 232,
+        "V13": 10,
+        "V14": 243,
+        "V15": 928,
+        "V16": 30,
+        "V17": 175,
+        "V18": 808,
+        "V19": 484,
+        "V20": 885,
+        "V21": 847,
+        "V22": 801,
+        "V23": 477,
+        "V24": 887,
+        "V25": 404,
+        "V26": 225,
+        "V27": 423,
+        "V28": 459,
+        "Amount": 96,
+        "approved": 0,
+        "Gender": "Group A"
+      },
+      {
+        "Time": 293,
+        "V1": 420,
+        "V2": 128,
+        "V3": 262,
+        "V4": 159,
+        "V5": 173,
+        "V6": 786,
+        "V7": 965,
+        "V8": 250,
+        "V9": 674,
+        "V10": 646,
+        "V11": 703,
+        "V12": 623,
+        "V13": 588,
+        "V14": 514,
+        "V15": 195,
+        "V16": 310,
+        "V17": 546,
+        "V18": 847,
+        "V19": 920,
+        "V20": 477,
+        "V21": 373,
+        "V22": 476,
+        "V23": 765,
+        "V24": 646,
+        "V25": 420,
+        "V26": 108,
+        "V27": 445,
+        "V28": 481,
+        "Amount": 5082,
+        "approved": 0,
+        "Gender": "Group A"
+      },
+      {
+        "Time": 730,
+        "V1": 940,
+        "V2": 512,
+        "V3": 863,
+        "V4": 416,
+        "V5": 258,
+        "V6": 532,
+        "V7": 344,
+        "V8": 242,
+        "V9": 107,
+        "V10": 905,
+        "V11": 182,
+        "V12": 922,
+        "V13": 259,
+        "V14": 443,
+        "V15": 723,
+        "V16": 285,
+        "V17": 473,
+        "V18": 517,
+        "V19": 495,
+        "V20": 708,
+        "V21": 940,
+        "V22": 892,
+        "V23": 552,
+        "V24": 182,
+        "V25": 829,
+        "V26": 210,
+        "V27": 715,
+        "V28": 716,
+        "Amount": 7363,
+        "approved": 0,
+        "Gender": "Group A"
+      },
+      {
+        "Time": 725,
+        "V1": 124,
+        "V2": 876,
+        "V3": 476,
+        "V4": 961,
+        "V5": 903,
+        "V6": 930,
+        "V7": 216,
+        "V8": 427,
+        "V9": 11,
+        "V10": 865,
+        "V11": 623,
+        "V12": 909,
+        "V13": 271,
+        "V14": 815,
+        "V15": 272,
+        "V16": 85,
+        "V17": 334,
+        "V18": 849,
+        "V19": 334,
+        "V20": 570,
+        "V21": 37,
+        "V22": 806,
+        "V23": 428,
+        "V24": 374,
+        "V25": 944,
+        "V26": 458,
+        "V27": 181,
+        "V28": 926,
+        "Amount": 167,
+        "approved": 0,
+        "Gender": "Group B"
+      },
+      {
+        "Time": 565,
+        "V1": 236,
+        "V2": 121,
+        "V3": 158,
+        "V4": 740,
+        "V5": 477,
+        "V6": 308,
+        "V7": 558,
+        "V8": 378,
+        "V9": 675,
+        "V10": 524,
+        "V11": 570,
+        "V12": 108,
+        "V13": 165,
+        "V14": 522,
+        "V15": 372,
+        "V16": 574,
+        "V17": 830,
+        "V18": 115,
+        "V19": 903,
+        "V20": 770,
+        "V21": 742,
+        "V22": 555,
+        "V23": 404,
+        "V24": 514,
+        "V25": 883,
+        "V26": 821,
+        "V27": 65,
+        "V28": 646,
+        "Amount": 3152,
+        "approved": 0,
+        "Gender": "Group B"
+      },
+      {
+        "Time": 612,
+        "V1": 512,
+        "V2": 373,
+        "V3": 197,
+        "V4": 919,
+        "V5": 122,
+        "V6": 691,
+        "V7": 439,
+        "V8": 612,
+        "V9": 566,
+        "V10": 760,
+        "V11": 741,
+        "V12": 585,
+        "V13": 478,
+        "V14": 51,
+        "V15": 827,
+        "V16": 136,
+        "V17": 861,
+        "V18": 707,
+        "V19": 101,
+        "V20": 634,
+        "V21": 255,
+        "V22": 817,
+        "V23": 120,
+        "V24": 622,
+        "V25": 23,
+        "V26": 601,
+        "V27": 883,
+        "V28": 366,
+        "Amount": 4449,
+        "approved": 0,
+        "Gender": "Group A"
+      },
+      {
+        "Time": 123,
+        "V1": 583,
+        "V2": 624,
+        "V3": 960,
+        "V4": 930,
+        "V5": 280,
+        "V6": 375,
+        "V7": 915,
+        "V8": 663,
+        "V9": 93,
+        "V10": 498,
+        "V11": 838,
+        "V12": 828,
+        "V13": 479,
+        "V14": 740,
+        "V15": 823,
+        "V16": 306,
+        "V17": 208,
+        "V18": 196,
+        "V19": 709,
+        "V20": 351,
+        "V21": 323,
+        "V22": 425,
+        "V23": 874,
+        "V24": 427,
+        "V25": 117,
+        "V26": 326,
+        "V27": 165,
+        "V28": 584,
+        "Amount": 29,
+        "approved": 1,
+        "Gender": "Group B"
+      }
+    ],
+    "governance_summary": {
+      "overall_status": "WARNING",
+      "risk_level": "MEDIUM",
+      "passed_checks": [
+        "Classification accuracy calculated: 0.85",
+        "Gender Demographic Parity Difference satisfies threshold: 0.0038"
+      ],
+      "failed_checks": [
+        "Gender Disparate Impact Ratio fails threshold: 0.0"
+      ],
+      "status": "WARNING",
+      "failed_rules": [
+        "Gender Disparate Impact Ratio fails threshold: 0.0"
+      ],
+      "passed_rules": [
+        "Classification accuracy calculated: 0.85",
+        "Gender Demographic Parity Difference satisfies threshold: 0.0038"
+      ]
+    }
   },
-  "csv_export_path": "C:\\Users\\smita\\Final Governance\\AI-Governance-Project\\uploads\\audit_results\\hybrid_audit_20260520_181728.csv"
+  "metric_glossary": {
+    "true_positive": {
+      "short_label": "True Positive (TP)",
+      "explanation": "Correctly flagged positive cases."
+    },
+    "true_negative": {
+      "short_label": "True Negative (TN)",
+      "explanation": "Correctly cleared negative cases."
+    },
+    "false_positive": {
+      "short_label": "False Positive (FP)",
+      "explanation": "Incorrect alarm \u2014 flagged positive but the actual outcome was negative (false alarm)."
+    },
+    "false_negative": {
+      "short_label": "False Negative (FN)",
+      "explanation": "Missed case \u2014 predicted negative but the actual outcome was positive (missed)."
+    },
+    "accuracy": {
+      "short_label": "Accuracy",
+      "explanation": "Share of all predictions that were correct (both positives and negatives)."
+    },
+    "precision": {
+      "short_label": "Precision",
+      "explanation": "When the model says \u201cpositive,\u201d how often it is right (fewer false alarms)."
+    },
+    "recall": {
+      "short_label": "Recall (TPR)",
+      "explanation": "Of all actual positives, how many the model caught (fewer missed cases)."
+    },
+    "tpr": {
+      "short_label": "True Positive Rate (TPR)",
+      "explanation": "Same as recall: fraction of real positives the model correctly identified."
+    },
+    "fpr": {
+      "short_label": "False Positive Rate (FPR)",
+      "explanation": "Of all actual negatives, how many were wrongly flagged as positive (false alarm rate)."
+    },
+    "f1_score": {
+      "short_label": "F1 Score",
+      "explanation": "Balance between precision and recall; higher means better overall classification quality."
+    },
+    "disparate_impact_ratio": {
+      "short_label": "Disparate Impact Ratio (DIR)",
+      "explanation": "Compares approval/selection rates across groups; values below 0.80 often signal disparate impact."
+    },
+    "demographic_parity_difference": {
+      "short_label": "Demographic Parity Difference (DPD)",
+      "explanation": "Difference in positive prediction rates between groups; larger absolute values mean more imbalance."
+    },
+    "selection_rate_min": {
+      "short_label": "Selection Rate (Min)",
+      "explanation": "Lowest group-level rate of positive predictions (e.g., lowest approval rate)."
+    },
+    "selection_rate_max": {
+      "short_label": "Selection Rate (Max)",
+      "explanation": "Highest group-level rate of positive predictions (e.g., highest approval rate)."
+    },
+    "confusion_matrix": {
+      "short_label": "Confusion Matrix",
+      "explanation": "Table of outcomes: [[TN, FP], [FN, TP]] \u2014 counts of correct and incorrect predictions."
+    },
+    "true_label": {
+      "short_label": "True Label",
+      "explanation": "Actual outcome from your dataset (ground truth), such as fraud=1 or approved=1."
+    },
+    "prediction": {
+      "short_label": "Prediction",
+      "explanation": "What the uploaded ML model predicted for that row after seeing its features."
+    },
+    "sensitive_feature": {
+      "short_label": "Sensitive Feature",
+      "explanation": "Protected or demographic attribute used for fairness comparison (e.g., gender group)."
+    }
+  },
+  "csv_export_path": "C:\\Users\\smita\\Final Governance\\AI-Governance-Project\\uploads\\audit_results\\hybrid_audit_20260521_093752.csv"
 }
