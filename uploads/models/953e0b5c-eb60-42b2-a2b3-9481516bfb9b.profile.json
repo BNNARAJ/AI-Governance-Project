@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "model_id": "953e0b5c-eb60-42b2-a2b3-9481516bfb9b",
+  "features": [
+    {
+      "name": "Gender",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "ApplicantIncome",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "LoanAmount",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "Credit_History",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    }
+  ]
+}

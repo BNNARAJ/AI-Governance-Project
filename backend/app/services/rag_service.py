@@ -1,8 +1,9 @@
 import os
+import re
 import requests
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
+from langchain_core.documents import Document
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -95,38 +96,254 @@ class RAGService:
         self.persist_directory = "data/chroma_db"
         os.makedirs(self.persist_directory, exist_ok=True)
         self._embeddings = None
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=100
-        )
+        # Tuned for policy/regulation documents where section continuity matters.
+        self.chunk_size = 1300
+        self.chunk_overlap = 260
+        self.min_chunk_size = 250
 
     def _get_embeddings(self):
         if self._embeddings is None:
             self._embeddings = GeminiEmbeddings()
         return self._embeddings
 
-    def index_pdf(self, file_path: str) -> int:
+    def _normalize_text(self, text: str) -> str:
+        if not text:
+            return ""
+        # Merge hyphenated line-break words: regula-\ntion -> regulation
+        text = re.sub(r"(\w)-\s*\n\s*(\w)", r"\1\2", text)
+        text = text.replace("\r", "\n")
+        # Normalize whitespace while preserving paragraph boundaries.
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    def _is_heading(self, paragraph: str) -> bool:
+        if not paragraph:
+            return False
+        p = " ".join(paragraph.split()).strip()
+        if not p:
+            return False
+        if len(p) > 120:
+            return False
+
+        # Numeric/legal title patterns: "1.", "2.1", "Section 4", "Article 3", etc.
+        heading_patterns = [
+            r"^(section|article|chapter|part|rule|schedule|annex)\s+[a-z0-9ivx]+[\s\-\.:)]",
+            r"^\d+(\.\d+){0,3}[\)\.\-:]\s+[a-z]",
+            r"^\([a-z0-9ivx]+\)\s+[a-z]",
+        ]
+        lower = p.lower()
+        if any(re.match(pattern, lower) for pattern in heading_patterns):
+            return True
+
+        # ALL CAPS headings are common in regulatory PDFs.
+        words = p.split()
+        if 2 <= len(words) <= 12 and p.upper() == p and re.search(r"[A-Z]", p):
+            return True
+        return False
+
+    def _split_paragraphs(self, page_text: str) -> list[str]:
+        blocks = [b.strip() for b in re.split(r"\n\s*\n", page_text) if b.strip()]
+        return blocks
+
+    def _section_aware_units(self, page_text: str) -> list[dict]:
+        units = []
+        current_heading = ""
+        for block in self._split_paragraphs(page_text):
+            if self._is_heading(block):
+                current_heading = " ".join(block.split())
+                continue
+            units.append(
+                {
+                    "heading": current_heading,
+                    "text": " ".join(block.split()),
+                }
+            )
+
+        # Fallback for unstructured scans/OCR-ish text.
+        if not units and page_text.strip():
+            units.append({"heading": "", "text": " ".join(page_text.split())})
+        return units
+
+    def _tail_overlap(self, text: str, max_chars: int) -> str:
+        if not text:
+            return ""
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+        if not sentences:
+            return text[-max_chars:]
+
+        picked = []
+        total = 0
+        for sentence in reversed(sentences):
+            if total and total + len(sentence) + 1 > max_chars:
+                break
+            picked.append(sentence)
+            total += len(sentence) + 1
+            if total >= max_chars:
+                break
+        return " ".join(reversed(picked)).strip()
+
+    def _chunks_from_page(self, page_text: str, metadata: dict) -> list[Document]:
+        units = self._section_aware_units(page_text)
+        if not units:
+            return []
+
+        raw_chunks: list[dict] = []
+        current_parts: list[str] = []
+        current_size = 0
+        current_heading = ""
+
+        for unit in units:
+            heading = unit["heading"]
+            unit_text = unit["text"]
+            if heading:
+                unit_text = f"{heading}\n{unit_text}"
+
+            add_size = len(unit_text) + (2 if current_parts else 0)
+            if current_parts and current_size + add_size > self.chunk_size:
+                raw_chunks.append(
+                    {
+                        "text": "\n\n".join(current_parts).strip(),
+                        "heading": current_heading or heading,
+                    }
+                )
+                current_parts = []
+                current_size = 0
+                current_heading = ""
+
+            if not current_heading and heading:
+                current_heading = heading
+            current_parts.append(unit_text)
+            current_size += len(unit_text) + (2 if len(current_parts) > 1 else 0)
+
+        if current_parts:
+            raw_chunks.append(
+                {
+                    "text": "\n\n".join(current_parts).strip(),
+                    "heading": current_heading,
+                }
+            )
+
+        documents: list[Document] = []
+        for idx, chunk in enumerate(raw_chunks):
+            chunk_text = chunk["text"]
+            if len(chunk_text) < self.min_chunk_size and documents:
+                # Attach tiny tail chunks to previous one to avoid low-signal fragments.
+                prev = documents[-1]
+                merged = f"{prev.page_content}\n\n{chunk_text}".strip()
+                documents[-1] = Document(page_content=merged, metadata=prev.metadata)
+                continue
+
+            if idx > 0:
+                overlap = self._tail_overlap(raw_chunks[idx - 1]["text"], self.chunk_overlap)
+                if overlap:
+                    chunk_text = f"[Context]\n{overlap}\n\n{chunk_text}"
+
+            chunk_meta = dict(metadata)
+            chunk_meta.update(
+                {
+                    "chunk_index": idx,
+                    "section_heading": chunk.get("heading", ""),
+                }
+            )
+            documents.append(Document(page_content=chunk_text, metadata=chunk_meta))
+
+        return documents
+
+    def index_pdf(self, file_path: str, source_key: str | None = None) -> int:
         loader = PyPDFLoader(file_path)
         pages = loader.load()
-        chunks = self.text_splitter.split_documents(pages)
+        chunks: list[Document] = []
+        source_file = source_key or os.path.basename(file_path)
 
-        Chroma.from_documents(
-            chunks,
-            self._get_embeddings(),
+        for page_number, page in enumerate(pages, start=1):
+            normalized = self._normalize_text(page.page_content)
+            if not normalized:
+                continue
+            metadata = dict(page.metadata or {})
+            metadata.update(
+                {
+                    "source_file": source_file,
+                    "original_file": os.path.basename(file_path),
+                    "page_number": page_number,
+                }
+            )
+            chunks.extend(self._chunks_from_page(normalized, metadata))
+
+        if not chunks:
+            return 0
+
+        vector_store = Chroma(
             persist_directory=self.persist_directory,
-            collection_name="regulations"
+            embedding_function=self._get_embeddings(),
+            collection_name="regulations",
         )
+        self.delete_source(source_file, vector_store=vector_store)
+        vector_store.add_documents(chunks)
+        if hasattr(vector_store, "persist"):
+            vector_store.persist()
         return len(chunks)
 
-    def query_regulations(self, query: str, n_results: int = 3) -> str:
+    def delete_source(self, source_file: str, vector_store: Chroma | None = None) -> int:
+        store = vector_store or Chroma(
+            persist_directory=self.persist_directory,
+            embedding_function=self._get_embeddings(),
+            collection_name="regulations",
+        )
+        collection = getattr(store, "_collection", None)
+        if collection is None:
+            return 0
+
+        existing = collection.get(where={"source_file": source_file})
+        ids = existing.get("ids", []) if isinstance(existing, dict) else []
+        if not ids:
+            return 0
+
+        collection.delete(ids=ids)
+        if hasattr(store, "persist"):
+            store.persist()
+        return len(ids)
+
+    def query_regulations(
+        self,
+        query: str,
+        n_results: int = 3,
+        source_keys: list[str] | None = None,
+    ) -> str:
         vector_store = Chroma(
             persist_directory=self.persist_directory,
             embedding_function=self._get_embeddings(),
             collection_name="regulations"
         )
-        results = vector_store.similarity_search(query, k=n_results)
+        search_filter = None
+        if source_keys:
+            search_filter = (
+                {"source_file": source_keys[0]}
+                if len(source_keys) == 1
+                else {"source_file": {"$in": source_keys}}
+            )
+
+        try:
+            results = vector_store.similarity_search(query, k=n_results, filter=search_filter)
+        except Exception:
+            results = vector_store.similarity_search(query, k=max(n_results, 12))
+            if source_keys:
+                allowed = set(source_keys)
+                results = [item for item in results if (item.metadata or {}).get("source_file") in allowed]
+
         if not results:
-            return "No regulations indexed yet. Please upload PDF documents first."
-        return "\n".join([r.page_content for r in results])
+            return "No matching regulations indexed for this review. Please activate the right PDF document first."
+
+        formatted = []
+        for r in results:
+            md = r.metadata or {}
+            source = md.get("source_file", "unknown")
+            page = md.get("page_number", "?")
+            heading = md.get("section_heading", "")
+            prefix = f"[{source} | p.{page}]"
+            if heading:
+                prefix = f"{prefix} {heading}"
+            formatted.append(f"{prefix}\n{r.page_content}")
+        return "\n\n---\n\n".join(formatted)
 
 rag_service = RAGService()

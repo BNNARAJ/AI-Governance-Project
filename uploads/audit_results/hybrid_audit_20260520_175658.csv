@@ -1,0 +1,2 @@
+audit_timestamp,model_description,overall_status,rule_metric_name,rule_sensitive_feature,rule_operator,threshold_min,threshold_max,actual_value,rule_status,source_excerpt,confidence,disparate_impact_ratio,demographic_parity_difference,selection_rate_min,selection_rate_max,row_count,tp,tn,fp,fn,precision,recall,f1_score,classification_accuracy
+2026-05-20T17:56:58.638049,fraud,FAIL,,,,,,,,,,,,,,0,,,,,,,,

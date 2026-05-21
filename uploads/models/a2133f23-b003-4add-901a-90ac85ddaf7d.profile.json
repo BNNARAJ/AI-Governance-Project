@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "model_id": "a2133f23-b003-4add-901a-90ac85ddaf7d",
+  "features": [
+    {
+      "name": "category",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "amt",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "city_pop",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "trans_month",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "trans_quarter",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "Cust_age",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "city_pop_category",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "avg_amount_by_category",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "gender_F",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "gender_M",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "trans_year_2019",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "name": "trans_year_2020",
+      "use": true,
+      "id_column": false,
+      "dtype": "float",
+      "required": false,
+      "default": 0,
+      "allowed_values": null,
+      "encoding": null,
+      "min": null,
+      "max": null
+    }
+  ]
+}

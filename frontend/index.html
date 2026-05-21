@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Governance Agent | Dashboard</title>
     <meta name="description" content="Generalized AI Governance Agent — audit any AI model for bias, fairness, and regulatory compliance across any industry.">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=20260507b">
+    <link rel="stylesheet" href="theme-light.css?v=20260507b">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -158,6 +159,27 @@
                         </div>
 
                         <div class="form-group">
+                            <label>Number of Test Cases</label>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <input type="number" id="test-count" min="1" max="20" step="1" value="6">
+                                    <small class="muted">Recommended: 6. Higher values may hit LLM rate limits.</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Audit Engine Mode</label>
+                            <select id="model-type">
+                                <option value="auto" selected>Auto Detect</option>
+                                <option value="llm">LLM Behavioral Audit</option>
+                                <option value="ml">ML Deterministic Audit</option>
+                                <option value="unknown">Run Both Engines</option>
+                            </select>
+                            <small class="muted">Use ML mode for classical models with structured inputs.</small>
+                        </div>
+
+                        <div class="form-group">
                             <label>Model Connection</label>
                             <div class="radio-group">
                                 <label class="radio-card glass">
@@ -242,6 +264,37 @@
                                 <div class="form-group flex-1">
                                     <label>API Key</label>
                                     <input type="password" id="api-key" placeholder="Bearer sk-...">
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label>Model Name (Optional)</label>
+                                    <input type="text" id="api-model-name" placeholder="e.g. google/gemini-2.5-pro">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label>API Mode</label>
+                                    <select id="api-mode">
+                                        <option value="prompt" selected>Prompt (LLM-style)</option>
+                                        <option value="features">Features (ML predict JSON)</option>
+                                    </select>
+                                    <small class="muted">Use “Features” for classic ML prediction endpoints.</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Fairness Dataset (Deterministic Engine)</label>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <select id="fairness-data-mode">
+                                        <option value="dummy" selected>Use Dummy Dataset</option>
+                                        <option value="upload">Upload CSV Dataset</option>
+                                    </select>
+                                </div>
+                                <div class="form-group flex-1" id="fairness-upload-wrap" style="display:none">
+                                    <button type="button" class="btn-secondary" id="fairness-upload-btn"><i data-lucide="upload"></i> Upload Fairness CSV</button>
+                                    <input type="file" id="fairness-file-input" accept=".csv" hidden>
+                                    <small class="muted" id="fairness-file-status">Required columns: true_label, prediction, sensitive_feature</small>
                                 </div>
                             </div>
                         </div>
@@ -344,6 +397,6 @@
         </main>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=20260520_final"></script>
 </body>
 </html>

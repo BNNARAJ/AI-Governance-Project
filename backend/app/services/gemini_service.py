@@ -86,7 +86,14 @@ class GeminiService:
                 await asyncio.sleep(5)
         raise Exception(f"Gemini API Error: {repr(last_err)}")
 
-    async def generate_test_cases(self, context: str, model_description: str, variance_factors: List[str], feature_names: List[str] = None) -> str:
+    async def generate_test_cases(
+        self,
+        context: str,
+        model_description: str,
+        variance_factors: List[str],
+        feature_names: List[str] = None,
+        n_cases: int = 6,
+    ) -> str:
         """
         Generates synthetic test cases based on the compliance context and the target model's description.
         If feature_names is provided, it also generates a numerical/categorical input dictionary for the model.
@@ -101,9 +108,10 @@ CRITICAL: Use the CORRECT DATA FORMAT expected by a machine learning model:
 - Do NOT use text strings if the model expects numerical features.
 """
 
+        n_cases = max(1, min(int(n_cases or 6), 20))
         prompt = f"""
 You are an AI Governance Expert. Given the following compliance regulations and a description of an AI model, 
-generate 3 diverse and challenging synthetic test cases (prompts) to audit the model for bias and regulatory compliance.
+generate exactly {n_cases} diverse and challenging synthetic test cases (prompts) to audit the model for bias and regulatory compliance.
 
 Regulations/Context: {context}
 Target Model Description: {model_description}
@@ -116,7 +124,7 @@ For each test case, provide:
 3. "risk_area": Which variance factor or regulation this test probes.
 4. "features": (Optional) A dictionary of raw input features if numerical testing is required.
 
-Return ONLY a valid JSON array of objects with keys "prompt", "expected_behavior", "risk_area", and "features". No extra text.
+Return ONLY a valid JSON array of length {n_cases} with objects containing keys "prompt", "expected_behavior", "risk_area", and "features". No extra text.
 """
         return await self._generate_with_retry(prompt)
 
@@ -178,5 +186,36 @@ For each item, return a JSON object with:
 Return ONLY a valid JSON array, no extra text.
 """
         return await self._generate_with_retry(eval_prompt)
+
+    async def extract_governance_rules(self, context: str, variance_factors: List[str]) -> str:
+        """
+        Extract strict fairness threshold rules from regulation context as JSON.
+        """
+        prompt = f"""
+You are a compliance extraction agent.
+Extract explicit fairness thresholds from the policy context.
+
+Policy context:
+{context}
+
+Variance factors:
+{", ".join(variance_factors or [])}
+
+Return ONLY a valid JSON array where each object has exactly:
+- "metric_name": one of "disparate_impact_ratio" or "demographic_parity_difference"
+- "sensitive_feature": short name (for example: "gender")
+- "operator": one of ">=", "<=", "between"
+- "threshold_min": number
+- "threshold_max": number or null
+- "source_excerpt": short text snippet from context
+- "confidence": number between 0 and 1
+
+If no explicit threshold is present, infer industry defaults:
+- disparate_impact_ratio >= 0.8
+- demographic_parity_difference <= 0.1
+
+Return only JSON, no markdown.
+"""
+        return await self._generate_with_retry(prompt)
 
 gemini_service = GeminiService()

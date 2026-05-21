@@ -2,6 +2,7 @@ fastapi
 uvicorn
 google-generativeai
 chromadb
+onnxruntime==1.18.1
 pypdf
 python-multipart
 pydantic
@@ -16,3 +17,6 @@ scikit-learn
 pandas
 joblib
 pyyaml
+fairlearn
+mlflow
+faker

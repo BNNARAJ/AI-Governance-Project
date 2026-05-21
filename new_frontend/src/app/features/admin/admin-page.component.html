@@ -1,0 +1,88 @@
+<app-page-header
+  eyebrow="Administration"
+  title="Operating model and policy controls"
+  subtitle="Manage users, policies, and review thresholds."
+  icon="admin"
+/>
+
+@if (workspace.lastError()) {
+  <section class="empty-state" style="margin-bottom:1rem">
+    <strong>Integration notice</strong>
+    <p>{{ workspace.lastError() }}</p>
+  </section>
+}
+
+@if (!adminAvailable) {
+  <section class="admin-grid">
+    <app-blocked-feature-card [feature]="adminBlockedState" />
+
+    <app-surface-card
+      eyebrow="Overview"
+      title="What belongs here"
+      subtitle="Use this space to manage users, policy ownership, and threshold settings."
+    >
+      <div class="policy-list">
+        <article class="policy-card">
+          <strong><app-icon name="admin" />Role directory</strong>
+          <p>Maintain a clear map of administrators, reviewers, and technical owners.</p>
+        </article>
+        <article class="policy-card">
+          <strong><app-icon name="shield" />Policy ownership</strong>
+          <p>Assign owners to each governance policy.</p>
+        </article>
+        <article class="policy-card">
+          <strong><app-icon name="spark" />Threshold controls</strong>
+          <p>Set target score thresholds and exception triggers.</p>
+        </article>
+      </div>
+    </app-surface-card>
+  </section>
+} @else if (workspace.adminOverview(); as overview) {
+  <section class="admin-grid">
+    <app-surface-card
+      eyebrow="Directory"
+      title="Workspace users"
+      subtitle="Keep user roles and responsibilities clear."
+    >
+      <div class="user-list">
+        @for (user of overview.users; track user.id) {
+          <article class="user-row">
+            <div>
+              <strong>{{ user.fullName }}</strong>
+              <p>{{ user.email }}</p>
+            </div>
+            <div class="user-row__meta">
+              <span class="user-chip">{{ user.role | titlecase }}</span>
+              <span>{{ user.department }}</span>
+            </div>
+          </article>
+        }
+      </div>
+    </app-surface-card>
+
+    <app-surface-card
+      eyebrow="Policy thresholds"
+      title="Governance policies"
+      subtitle="Use shared score thresholds across the governance workflow."
+    >
+      <div class="policy-list">
+        @for (policy of overview.policies; track policy.id) {
+          <article class="policy-card">
+            <strong><app-icon name="shield" />{{ policy.name }}</strong>
+            <p>{{ policy.owner }}</p>
+            <div class="policy-card__scores">
+              <span>Fairness {{ policy.minFairness }}</span>
+              <span>Compliance {{ policy.minCompliance }}</span>
+              <span>Accuracy {{ policy.minAccuracy }}</span>
+            </div>
+          </article>
+        }
+      </div>
+    </app-surface-card>
+  </section>
+} @else {
+  <section class="empty-state">
+    <strong>Loading administration center...</strong>
+    <p>Directory and policy controls are being prepared for this workspace.</p>
+  </section>
+}

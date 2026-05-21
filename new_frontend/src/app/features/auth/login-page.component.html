@@ -1,0 +1,165 @@
+<div class="login-page">
+  <section class="login-hero glass-glare">
+    <span class="hero-eyebrow">Governance Console</span>
+    <h1>AI governance for regulations, audits, and reviews.</h1>
+    <p>
+      Manage regulations, configure audits, and review findings in one place.
+    </p>
+
+    <div class="hero-grid">
+      <article>
+        <strong>Regulations</strong>
+        <span>Organize the policy and compliance documents used during reviews.</span>
+      </article>
+      <article>
+        <strong>Audits</strong>
+        <span>Configure audit settings and run governance checks for the selected model.</span>
+      </article>
+      <article>
+        <strong>Results</strong>
+        <span>Review scores, findings, and outputs from the latest run.</span>
+      </article>
+    </div>
+  </section>
+
+  <section class="login-card glass-glare">
+    <div class="login-card__header">
+      <span class="hero-eyebrow">{{ authMode() === 'signin' ? 'Sign in' : 'Register' }}</span>
+      <h2>{{ modeTitle() }}</h2>
+      <p>{{ modeCopy() }}</p>
+    </div>
+
+    <div class="auth-switcher">
+      <button
+        type="button"
+        class="auth-switcher__button"
+        [class.is-active]="authMode() === 'signin'"
+        (click)="switchMode('signin')"
+      >
+        Sign in
+      </button>
+      <button
+        type="button"
+        class="auth-switcher__button"
+        [class.is-active]="authMode() === 'register'"
+        (click)="switchMode('register')"
+      >
+        Register
+      </button>
+    </div>
+
+    <form
+      [formGroup]="authMode() === 'signin' ? signInForm : registerForm"
+      (ngSubmit)="submit()"
+      class="login-form"
+    >
+      @if (authMode() === 'signin') {
+        <label class="field">
+          <span>Email or username</span>
+          <input type="text" formControlName="username" placeholder="name@company.com" />
+          @if (signInFieldError('username')) {
+            <small>{{ signInFieldError('username') }}</small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Password</span>
+          <input type="password" formControlName="password" placeholder="Enter your password" />
+          @if (signInFieldError('password')) {
+            <small>{{ signInFieldError('password') }}</small>
+          }
+        </label>
+      } @else {
+        <div class="form-grid">
+          <label class="field field--full">
+            <span>Full name</span>
+            <input type="text" formControlName="fullName" placeholder="Ananya Sharma" />
+            @if (registerFieldError('fullName')) {
+              <small>{{ registerFieldError('fullName') }}</small>
+            }
+          </label>
+
+          <label class="field">
+            <span>Email</span>
+            <input type="email" formControlName="email" placeholder="ananya@company.com" />
+            @if (registerFieldError('email')) {
+              <small>{{ registerFieldError('email') }}</small>
+            }
+          </label>
+
+          <label class="field">
+            <span>Username</span>
+            <input type="text" formControlName="username" placeholder="ananya" />
+            @if (registerFieldError('username')) {
+              <small>{{ registerFieldError('username') }}</small>
+            }
+          </label>
+
+          <label class="field">
+            <span>Role</span>
+            <select formControlName="role" (change)="syncDepartment()">
+              <option value="admin">Admin</option>
+              <option value="compliance_officer">Compliance Officer</option>
+              <option value="ai_developer">AI Developer</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Department</span>
+            <input type="text" formControlName="department" placeholder="Risk and Compliance" />
+            @if (registerFieldError('department')) {
+              <small>{{ registerFieldError('department') }}</small>
+            }
+          </label>
+
+          <label class="field">
+            <span>Password</span>
+            <input type="password" formControlName="password" placeholder="Create a password" />
+            @if (registerFieldError('password')) {
+              <small>{{ registerFieldError('password') }}</small>
+            }
+          </label>
+
+          <label class="field">
+            <span>Confirm password</span>
+            <input type="password" formControlName="confirmPassword" placeholder="Repeat the password" />
+            @if (registerFieldError('confirmPassword')) {
+              <small>{{ registerFieldError('confirmPassword') }}</small>
+            }
+          </label>
+        </div>
+      }
+
+      @if (errorMessage()) {
+        <p class="form-error">{{ errorMessage() }}</p>
+      }
+
+      @if (successMessage()) {
+        <p class="form-success">{{ successMessage() }}</p>
+      }
+
+      <button class="button button--primary button--block" type="submit">
+        @if (submitting()) {
+          <span class="button__spinner" aria-hidden="true"></span>
+          {{ authMode() === 'signin' ? 'Signing in...' : 'Creating account...' }}
+        } @else {
+          {{ authMode() === 'signin' ? 'Enter workspace' : 'Create account' }}
+        }
+      </button>
+    </form>
+
+    @if (authMode() === 'signin') {
+      <div class="login-notice" style="margin-top:1rem">
+        <strong>Workspace access</strong>
+        <p>Use an existing backend account or register a new workspace account here.</p>
+        <span>Your session will continue in the browser until you sign out.</span>
+      </div>
+    } @else {
+      <div class="login-notice" style="margin-top:1rem">
+        <strong>Registration guidance</strong>
+        <p>Choose the role that best matches how this user will work in the application.</p>
+        <span>New accounts enter the application after creation.</span>
+      </div>
+    }
+  </section>
+</div>

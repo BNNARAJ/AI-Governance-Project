@@ -1,0 +1,70 @@
+<div class="shell">
+  <aside class="shell__sidebar" [class.is-open]="menuOpen()">
+    <div class="brand">
+      <div class="brand__mark">GC</div>
+      <div class="brand__copy">
+        <strong>Governance Console</strong>
+        <span>AI governance</span>
+      </div>
+    </div>
+
+    <div class="nav__section-label">Workspace</div>
+
+    <nav class="nav">
+      @for (item of navItems(); track item.route) {
+        <a
+          class="nav__link"
+          [routerLink]="item.route"
+          routerLinkActive="is-active"
+          (click)="closeMenu()"
+        >
+          <span class="nav__badge">
+            <app-icon [name]="item.icon" />
+          </span>
+          <span class="nav__label">{{ item.label }}</span>
+        </a>
+      }
+    </nav>
+
+    @if (user(); as currentUser) {
+      <div class="sidebar-card">
+        <span class="sidebar-card__eyebrow">Active profile</span>
+        <div class="sidebar-card__identity">
+          <div class="sidebar-card__avatar">{{ userInitials(currentUser.fullName) }}</div>
+          <div>
+            <strong>{{ currentUser.fullName }}</strong>
+            <p>{{ formatRole(currentUser.role) }}</p>
+          </div>
+        </div>
+        <p class="sidebar-card__detail">{{ currentUser.department }}</p>
+      </div>
+    }
+  </aside>
+
+  <div class="shell__workspace">
+    <header class="workspace-header">
+      <button
+        type="button"
+        class="workspace-header__toggle"
+        (click)="toggleMenu()"
+        aria-label="Toggle navigation"
+      >
+        {{ menuOpen() ? 'Close' : 'Menu' }}
+      </button>
+
+      <div class="workspace-header__meta">
+        <span class="workspace-header__pill">{{ workspaceLabel() }}</span>
+        <span class="workspace-header__pill is-muted">Review workspace</span>
+      </div>
+
+      <button type="button" class="button button--ghost workspace-header__signout" (click)="signOut()">
+        <app-icon name="logout" />
+        Sign out
+      </button>
+    </header>
+
+    <main class="workspace-body" (click)="closeMenu()">
+      <router-outlet />
+    </main>
+  </div>
+</div>

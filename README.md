@@ -1,157 +1,270 @@
-# 🛡️ AI Governance Agent
+# AI Governance Agent
 
-A **generalized AI governance platform** that audits any AI model for bias, fairness, and regulatory compliance — across any industry domain (Finance, Agriculture, Healthcare, etc.).
+Lightweight, enterprise-style AI governance platform for auditing AI systems on fairness, compliance, and performance quality.
 
-## 🏗️ Architecture
+The platform supports both:
+- Behavioral governance for LLMs (adversarial test generation + policy-grounded grading)
+- Deterministic governance for ML models (Fairlearn metrics + threshold-based validation)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  LAYER 1 — INPUT LAYER (Frontend Dashboard)                     │
-│  Upload regulations (PDF) · Define variance factors · Connect   │
-│  your model via API endpoint or file upload                     │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 2 — RAG LAYER (ChromaDB + Gemini Embeddings)             │
-│  Chunks uploaded PDFs · Stores as vectors · Builds compliance   │
-│  knowledge base for contextual retrieval                        │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 3 — TEST GENERATION (Gemini 1.5 Pro)                     │
-│  Generates synthetic adversarial test cases targeting the       │
-│  user-defined variance factors (e.g., Gender, Crop Type)        │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 4 — MODEL TESTING                                        │
-│  Sends test cases to the target model · Captures responses      │
-│  for evaluation against the compliance knowledge base           │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 5 — OUTPUT LAYER (Scorecard & Reports)                   │
-│  Grades each response on Fairness, Compliance, Accuracy (0-10)  │
-│  Generates detailed audit reports with actionable insights      │
-└─────────────────────────────────────────────────────────────────┘
-```
+## What Is Implemented
 
-## 🚀 Quick Start
+1. Hybrid governance architecture (RAG + LLM + deterministic math)
+2. Dual audit engine routing by model type
+3. ML ingestion assurance levels (MLflow-first, then fallback levels)
+4. Strict policy threshold extraction (JSON contract)
+5. Hybrid validator with PASS/FAIL rollup
+6. Power BI-ready CSV export
 
-#### Option A: One-Click Run (Windows)
-Double-click `run_app.bat` in the root folder. It will start the backend and open the dashboard in your browser.
+## Execution Flow (Step-Wise)
 
-#### Option B: Manual Setup
-### Prerequisites
-- **Python 3.11+**
-- **Google AI Studio API Key** ([Get one here](https://aistudio.google.com/apikey))
+### Phase 1: Policy Ingestion and Retrieval (RAG)
+- Upload regulation PDFs.
+- PDFs are chunked with structure-aware logic and indexed in ChromaDB.
+- Context is retrieved during audit runs.
 
-### 1. Clone & Setup
+### Phase 2: Rule and Scenario Layer
+- Policy thresholds are extracted into strict JSON rules.
+- For LLM/behavioral audits, adversarial scenarios are generated per variance factor.
+- If Gemini is rate-limited/unavailable, deterministic fallbacks are used.
+
+### Phase 3: Deterministic Fairness Engine
+- Computes fairness metrics using Fairlearn:
+  - `disparate_impact_ratio`
+  - `demographic_parity_difference`
+- Supports:
+  - Dummy dataset mode (fast demo and fallback)
+  - Uploaded fairness CSV mode (`true_label`, `prediction`, `sensitive_feature`)
+
+### Phase 4: Hybrid Validator and Export
+- Compares extracted policy rules against deterministic metrics.
+- Produces rule-level statuses and overall PASS/FAIL.
+- Exports flattened CSV for Power BI and stores audit JSON for persistence.
+
+## Dual Engine Routing
+
+`AuditConfig.model_type` controls execution:
+- `llm`: runs behavioral phase only
+- `ml`: runs deterministic phase only
+- `unknown`: runs both and merges output
+- `auto` (default): inferred from connection mode
+
+## ML Ingestion Levels and Assurance
+
+The backend classifies ML readiness to avoid false confidence:
+
+1. `level_1_mlflow_bundle`
+- Full MLflow bundle import (recommended production path)
+- Assurance: `full`
+
+2. `level_2_model_preprocessor_schema`
+- Model + preprocessor + feature schema/profile
+- Assurance: `strong`
+
+3. `level_2_model_schema_only`
+- Model + schema, no preprocessor parity
+- Assurance: `limited`
+
+4. `level_3_api_contract`
+- Feature-based API contract (schema-driven)
+- Assurance: `limited`
+
+When ingestion is incomplete, audit is marked limited-assurance and does not hard-fail solely for missing artifacts.
+
+## Intelligent RAG Chunking
+
+`backend/app/services/rag_service.py` uses structure-aware chunking:
+- Section-aware splitting
+- Heading detection for legal sections
+- Paragraph-preserving chunk assembly
+- Sentence-overlap carry-forward
+- Text normalization for PDF artifacts
+- Metadata-rich chunks (`source_file`, `page_number`, `section_heading`, `chunk_index`)
+
+If you upgraded from old chunking:
+1. Stop backend
+2. Delete `data/chroma_db`
+3. Restart backend
+4. Re-upload regulations
+
+## Quick Start
+
+### Option A: One-click run (Windows)
+- Double-click `run_app.bat`
+
+### Option B: Manual setup
+
+Prerequisites:
+- Python 3.11+
+- Google AI Studio key (for Gemini phases)
 
 ```bash
-# Navigate to the project
 cd "AI Governance Project"
-
-# Create virtual environment (skip if already done)
 python -m venv backend\venv
-
-# Activate virtual environment
-.\backend\venv\Scripts\Activate.ps1    # Windows PowerShell
-# source backend/venv/bin/activate     # macOS/Linux
-
-# Install dependencies
+.\backend\venv\Scripts\Activate.ps1
 pip install -r backend\requirements.txt
 ```
 
-### 2. Configure API Key
+Create `backend/.env`:
 
-Edit `backend/.env` and replace with your key:
-```
+```env
 GOOGLE_API_KEY=your_actual_gemini_api_key
 ```
 
-### 3. Launch the Backend
-
-The backend is a FastAPI application that handles RAG indexing and LLM orchestration.
+Run backend:
 
 ```bash
-# Navigate to backend directory
 cd backend
-
-# Run the backend
 .\venv\Scripts\python.exe -m app.main
 ```
 
-The API will be live at **http://localhost:8000**. You can verify at http://localhost:8000/docs (Swagger UI).
+Backend docs:
+- `http://localhost:8000/docs`
 
-### 4. Open the Frontend
+Run frontend:
 
-The frontend is a premium glassmorphism dashboard built with Vanilla HTML/JS. You can open it directly or serve it via a local web server (recommended).
-
-**Option A: Local Server (Recommended)**
 ```bash
-# In a new terminal
 cd frontend
 python -m http.server 3000
 ```
-Then visit **http://localhost:3000** in your browser.
 
-**Option B: Direct File Open**
-- Simply open `frontend/index.html` in your web browser.
-- Ensure the **"API Online"** status pill in the top right is green.
-- **Login Credentials:**
-    - `admin` / `admin123` (Full access)
-    - `compliance` / `compliance123`
-    - `developer` / `developer123`
+Frontend URL:
+- `http://localhost:3000`
 
-## 📋 Usage
+## Core API Endpoints
 
-1. **Upload Regulations** — Drag & drop any PDF (RBI guidelines, agricultural standards, healthcare protocols, etc.)
-2. **Configure Audit** — Describe the model, add variance factors (custom or preset), and connect your model's API endpoint
-3. **Run Audit** — The agent generates adversarial test cases, tests your model, and grades each response
-4. **View Results** — Get a Fairness Scorecard with scores on Fairness, Compliance, and Accuracy
+### Governance inputs
+- `POST /upload-regulations`
+- `POST /configure-audit`
+- `POST /run-audit`
 
-## 🛠️ Tech Stack
+### ML artifact management
+- `POST /upload-model`
+- `POST /upload-mlflow-model`
+- `POST /upload-preprocessor/{filename}`
+- `POST /upload-feature-schema/{filename}`
+- `GET /inspect-model/{filename}`
+- `GET /model-profile/{filename}`
+- `POST /model-profile/{filename}`
+
+### Deterministic fairness dataset
+- `POST /upload-fairness-data`
+
+### Outputs
+- `POST /generate-report`
+- `GET /audit-history`
+
+## AuditConfig Fields (Important)
+
+`/configure-audit` accepts:
+- `model_description: str`
+- `variance_factors: list[str]`
+- `n_test_cases: int`
+- `model_type: "auto" | "llm" | "ml" | "unknown"`
+- `connection_type: "api" | "upload"`
+- `api_mode: "prompt" | "features"`
+- `api_url: str | null`
+- `api_key: str | null`
+- `local_file_path: str | null`
+- `custom_feature_names: list[str] | null`
+- `fairness_data_mode: "dummy" | "upload"`
+- `fairness_data_file: str | null`
+
+## Example Configure Payloads
+
+### LLM behavioral audit
+```json
+{
+  "model_description": "Customer support assistant",
+  "variance_factors": ["gender", "age", "location"],
+  "n_test_cases": 8,
+  "model_type": "llm",
+  "connection_type": "api",
+  "api_mode": "prompt",
+  "api_url": "http://localhost:9000/chat",
+  "api_key": null,
+  "fairness_data_mode": "dummy"
+}
+```
+
+### ML deterministic audit (uploaded model)
+```json
+{
+  "model_description": "Loan approval model",
+  "variance_factors": ["gender", "age"],
+  "n_test_cases": 6,
+  "model_type": "ml",
+  "connection_type": "upload",
+  "local_file_path": "loan_model_mlflow_20260507_101010.pkl",
+  "fairness_data_mode": "upload",
+  "fairness_data_file": "C:/.../uploads/fairness_data/loan_predictions.csv"
+}
+```
+
+## Outputs Returned by `/run-audit`
+
+- `summary`: top-level run stats and resolved execution mode
+- `results`: scenario-level behavioral records (if behavioral phase executed)
+- `hybrid_validation`:
+  - `overall_status`
+  - `fairness_metrics`
+  - `rule_results`
+- `execution_plan`:
+  - `model_type`
+  - phase execution flags
+  - rule source (`llm_extraction`, `cache`, or fallback)
+  - ML readiness and assurance details
+- `csv_export_path`: exported governance CSV path
+
+## Tech Stack
 
 | Component | Technology |
 |---|---|
-| Frontend | HTML, CSS (Glassmorphism), Vanilla JS |
+| Frontend | HTML, CSS, Vanilla JS |
 | Backend | Python, FastAPI |
-| LLM | Google Gemini 1.5 Flash |
+| LLM | Google Gemini |
 | Vector DB | ChromaDB |
-| RAG | LangChain + Gemini Embeddings |
-| PDF Parsing | PyPDF |
+| Embeddings | Gemini Embeddings API |
+| Deterministic Fairness | Fairlearn |
+| PDF Loader | LangChain PyPDFLoader |
+| Reporting | ReportLab |
 
-## 📁 Project Structure
+## Project Structure
 
-```
+```text
 AI Governance Project/
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py              # FastAPI routes & orchestration
-│   │   └── services/
-│   │       ├── __init__.py
-│   │       ├── gemini_service.py # LLM logic (test gen + grading)
-│   │       └── rag_service.py    # PDF indexing & vector search
-│   ├── .env                     # API key (not committed)
-│   ├── requirements.txt
-│   └── venv/                    # Python virtual environment
-├── frontend/
-│   ├── index.html               # Dashboard UI
-│   ├── style.css                # Premium dark theme
-│   └── script.js                # Frontend logic
-├── data/                        # ChromaDB persistence
-├── uploads/                     # Uploaded regulation PDFs
-└── README.md
+|-- backend/
+|   |-- app/
+|   |   |-- main.py
+|   |   `-- services/
+|   |       |-- fairness_engine.py
+|   |       |-- gemini_service.py
+|   |       |-- model_service.py
+|   |       |-- rag_service.py
+|   |       `-- report_service.py
+|   |-- requirements.txt
+|   `-- .env
+|-- frontend/
+|-- data/
+|-- uploads/
+`-- README.md
 ```
 
-## 👥 User Roles
+## Default Login Users
 
-| Role | Capabilities |
-|---|---|
-| **Compliance Officer** | Upload regulations, define variance factors, review audit reports |
-| **AI Developer** | Connect model API, view Fairness Scorecard, debug biased behavior |
-| **Admin** | Manage access, set compliance policies, monitor system-wide fairness |
+- `admin` / `admin123`
+- `compliance` / `compliance123`
+- `developer` / `developer123`
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
-- **API Offline:** Ensure the backend is running on port 8000. Check if any other process is using that port.
-- **Gemini Errors:** Verify your `GOOGLE_API_KEY` in `backend/.env`. Ensure you have quotas for `gemini-1.5-flash`.
-- **CORS Issues:** If the frontend cannot talk to the backend, ensure you are accessing the frontend via `file://` or a local server, and the backend has CORS enabled (it is by default in `main.py`).
+- Backend unavailable: verify backend is running on `8000`.
+- Gemini failures: verify `GOOGLE_API_KEY` and quota.
+- Empty retrieval: reset `data/chroma_db` and re-upload regulations.
+- Deterministic CSV rejected: ensure required columns are exactly:
+  - `true_label`
+  - `prediction`
+  - `sensitive_feature`
 
-## 📄 License
+## License
 
-This project is for educational and research purposes.
+For educational and research use.
